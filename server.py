@@ -24,8 +24,9 @@ MODEL_DIR = Path("models")
 UPLOAD_DIR.mkdir(exist_ok=True)
 MODEL_DIR.mkdir(exist_ok=True)
 
-REMOVEBG_KEY = os.getenv("REMOVEBG_API_KEY", "")
+REMOVEBG_KEY = os.getenv("REMOVEBG_API_KEY", "")  # legacy fallback
 MESHY_KEY = os.getenv("MESHY_API_KEY", "")
+GEMINI_KEY = os.getenv("NANOBANANA_API_KEY", "")
 SHAPEWAYS_CLIENT_ID = os.getenv("SHAPEWAYS_CLIENT_ID", "")
 SHAPEWAYS_CLIENT_SECRET = os.getenv("SHAPEWAYS_CLIENT_SECRET", "")
 
@@ -150,16 +151,17 @@ async def generate_model(data: dict, request: Request):
     _rate_limits[ip]["count"] += 1
     remaining = MAX_GENERATIONS_PER_DAY - _rate_limits[ip]["count"]
 
-    # Step 1: Remove background
+    # Step 1: Process image via Gemini (bg removal for statue, charm gen for keyring)
+    product_type = data.get("product_type", "statue")
     try:
-        nobg_path = await remove_background(image_path)
+        processed_path = await process_image_gemini(image_path, product_type)
     except Exception as e:
-        print(f"Background removal error: {e}")
-        nobg_path = image_path
+        print(f"Image processing error: {e}")
+        processed_path = image_path
 
-    # Step 2: Generate 3D model
+    # Step 2: Generate 3D model from processed image
     try:
-        task_id = await start_3d_generation(nobg_path)
+        task_id = await start_3d_generation(processed_path)
     except Exception as e:
         print(f"3D generation error: {e}")
         task_id = None
@@ -171,12 +173,84 @@ async def generate_model(data: dict, request: Request):
     return {"model_url": "/static/model.glb", "status": "demo", "remaining": remaining}
 
 
-async def remove_background(image_path: Path) -> Path:
-    """Remove background using remove.bg API"""
-    if not REMOVEBG_KEY:
-        # No API key — return original image
+GEMINI_PROMPTS = {
+    "statue": (
+        "Isolate the animal from this image. Remove the entire background and replace it "
+        "with a pure white background. Keep the animal exactly as it appears — do not alter, "
+        "stylize, or add anything. Output a clean, high-resolution image of just the animal "
+        "on white, suitable for 3D model generation."
+    ),
+    "keyring": (
+        "Isolate the animal from this image and transform it into a highly detailed miniature "
+        "bronze keychain charm. Render it as a small sculptural relief — solid, metallic bronze "
+        "finish with fine surface detail. Include a small eyelet loop at the top for attaching "
+        "to a keyring — do NOT include the chain or ring itself, just the charm with the eyelet. "
+        "Place on a pure white background. The output should look like a product photo of a "
+        "premium bronze pet charm."
+    ),
+}
+
+
+async def process_image_gemini(image_path: Path, product_type: str) -> Path:
+    """Process pet photo via Gemini — background removal (statue) or keyring charm generation"""
+    if not GEMINI_KEY:
+        # Fallback to remove.bg for statue, or return original
+        if product_type == "statue" and REMOVEBG_KEY:
+            return await remove_background_legacy(image_path)
         return image_path
 
+    import base64
+    image_data = base64.b64encode(image_path.read_bytes()).decode()
+
+    # Detect mime type
+    ext = image_path.suffix.lower()
+    mime = {"jpg": "image/jpeg", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}.get(ext, "image/jpeg")
+
+    prompt = GEMINI_PROMPTS.get(product_type, GEMINI_PROMPTS["statue"])
+    out_path = UPLOAD_DIR / f"{image_path.stem}_{product_type}_processed.png"
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={GEMINI_KEY}",
+            json={
+                "contents": [{
+                    "parts": [
+                        {"text": prompt},
+                        {"inline_data": {"mime_type": mime, "data": image_data}},
+                    ]
+                }],
+                "generationConfig": {
+                    "responseModalities": ["image", "text"],
+                    "responseMimeType": "image/png",
+                },
+            },
+        )
+
+        if resp.status_code == 200:
+            data = resp.json()
+            # Extract image from response
+            candidates = data.get("candidates", [])
+            for candidate in candidates:
+                parts = candidate.get("content", {}).get("parts", [])
+                for part in parts:
+                    if "inlineData" in part:
+                        img_bytes = base64.b64decode(part["inlineData"]["data"])
+                        out_path.write_bytes(img_bytes)
+                        print(f"Gemini processed ({product_type}): {out_path.name}")
+                        return out_path
+
+            print(f"Gemini: no image in response")
+            return image_path
+        else:
+            print(f"Gemini error: {resp.status_code} - {resp.text[:500]}")
+            # Fallback
+            if product_type == "statue" and REMOVEBG_KEY:
+                return await remove_background_legacy(image_path)
+            return image_path
+
+
+async def remove_background_legacy(image_path: Path) -> Path:
+    """Legacy fallback: remove.bg API"""
     out_path = UPLOAD_DIR / f"{image_path.stem}_nobg.png"
 
     async with httpx.AsyncClient(timeout=30) as client:
