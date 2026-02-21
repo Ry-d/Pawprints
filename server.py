@@ -227,21 +227,39 @@ async def process_image_gemini(image_path: Path, product_type: str) -> Path:
     out_path = UPLOAD_DIR / f"{image_path.stem}_{product_type}_processed.png"
 
     async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key={GEMINI_KEY}",
-            json={
-                "contents": [{
-                    "parts": [
-                        {"text": prompt},
-                        {"inline_data": {"mime_type": mime, "data": image_data}},
-                    ]
-                }],
-                "generationConfig": {
-                    "responseModalities": ["image", "text"],
-                    "responseMimeType": "image/png",
+        # Try multiple model names in order of likelihood
+        models = [
+            "gemini-2.0-flash-preview-image-generation",
+            "gemini-2.0-flash-exp",
+            "gemini-2.0-flash",
+        ]
+        resp = None
+        for model_name in models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_KEY}"
+            print(f"Trying Gemini model: {model_name}")
+            resp = await client.post(
+                url,
+                json={
+                    "contents": [{
+                        "parts": [
+                            {"text": prompt},
+                            {"inline_data": {"mime_type": mime, "data": image_data}},
+                        ]
+                    }],
+                    "generationConfig": {
+                        "responseModalities": ["IMAGE", "TEXT"],
+                    },
                 },
-            },
-        )
+            )
+            if resp.status_code == 200:
+                print(f"Gemini model {model_name} succeeded")
+                break
+            else:
+                print(f"Gemini model {model_name} failed: {resp.status_code} - {resp.text[:300]}")
+        
+        if resp is None:
+            print("No Gemini models available")
+            return image_path
 
         if resp.status_code == 200:
             data = resp.json()
@@ -256,13 +274,15 @@ async def process_image_gemini(image_path: Path, product_type: str) -> Path:
                         print(f"Gemini processed ({product_type}): {out_path.name}")
                         return out_path
 
-            print(f"Gemini: no image in response")
+            print(f"Gemini: no image in response. Full response: {data}")
             return image_path
         else:
-            print(f"Gemini error: {resp.status_code} - {resp.text[:500]}")
+            print(f"Gemini final error: {resp.status_code} - {resp.text[:500]}")
             # Fallback
             if product_type == "statue" and REMOVEBG_KEY:
+                print("Falling back to remove.bg")
                 return await remove_background_legacy(image_path)
+            print("No fallback available, returning original image")
             return image_path
 
 
