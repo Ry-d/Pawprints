@@ -228,7 +228,7 @@ async def process_image_gemini(image_path: Path, product_type: str) -> Path:
 
     async with httpx.AsyncClient(timeout=120) as client:
         resp = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={GEMINI_KEY}",
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key={GEMINI_KEY}",
             json={
                 "contents": [{
                     "parts": [
@@ -292,20 +292,34 @@ async def start_3d_generation(image_path: Path) -> Optional[str]:
     if not MESHY_KEY:
         return None
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        with open(image_path, "rb") as f:
-            resp = await client.post(
-                "https://api.meshy.ai/v2/image-to-3d",
-                headers={"Authorization": f"Bearer {MESHY_KEY}"},
-                files={"image": f},
-                data={"mode": "preview"},
-            )
+    import base64 as b64mod
+    image_data = b64mod.b64encode(image_path.read_bytes()).decode()
+    ext = image_path.suffix.lower()
+    mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}.get(ext, "image/jpeg")
+    data_uri = f"data:{mime};base64,{image_data}"
 
-        if resp.status_code in (200, 201):
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            "https://api.meshy.ai/openapi/v1/image-to-3d",
+            headers={
+                "Authorization": f"Bearer {MESHY_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "image_url": data_uri,
+                "ai_model": "meshy-6",
+                "topology": "triangle",
+                "target_polycount": 30000,
+            },
+        )
+
+        if resp.status_code in (200, 201, 202):
             data = resp.json()
-            return data.get("result", data.get("id"))
+            task_id = data.get("result") or data.get("id")
+            print(f"Meshy task started: {task_id}")
+            return task_id
         else:
-            print(f"Meshy error: {resp.status_code} - {resp.text}")
+            print(f"Meshy error: {resp.status_code} - {resp.text[:500]}")
             return None
 
 
@@ -317,15 +331,16 @@ async def model_status(task_id: str):
 
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.get(
-            f"https://api.meshy.ai/v2/image-to-3d/{task_id}",
+            f"https://api.meshy.ai/openapi/v1/image-to-3d/{task_id}",
             headers={"Authorization": f"Bearer {MESHY_KEY}"},
         )
 
         if resp.status_code == 200:
             data = resp.json()
             status = data.get("status", "unknown")
+            print(f"Meshy poll: {task_id} -> {status}")
 
-            if status == "SUCCEEDED":
+            if status in ("SUCCEEDED", "succeeded"):
                 # Download the model
                 model_urls = data.get("model_urls", {})
                 glb_url = model_urls.get("glb") or model_urls.get("obj")
@@ -346,7 +361,7 @@ async def model_status(task_id: str):
 
                 return {"status": "completed", "model_url": "/static/model.glb"}
 
-            elif status == "FAILED":
+            elif status in ("FAILED", "failed"):
                 return {"status": "failed", "error": data.get("message", "Unknown error")}
 
             else:
