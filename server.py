@@ -1,0 +1,337 @@
+"""
+PawPrints — Backend Server
+FastAPI app serving the web UI and handling photo → 3D pipeline
+"""
+import os
+import uuid
+import time
+import shutil
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+import httpx
+
+load_dotenv()
+
+# ─── Config ───
+UPLOAD_DIR = Path("uploads")
+MODEL_DIR = Path("models")
+UPLOAD_DIR.mkdir(exist_ok=True)
+MODEL_DIR.mkdir(exist_ok=True)
+
+REMOVEBG_KEY = os.getenv("REMOVEBG_API_KEY", "")
+MESHY_KEY = os.getenv("MESHY_API_KEY", "")
+SHAPEWAYS_CLIENT_ID = os.getenv("SHAPEWAYS_CLIENT_ID", "")
+SHAPEWAYS_CLIENT_SECRET = os.getenv("SHAPEWAYS_CLIENT_SECRET", "")
+
+# Shapeways OAuth2 token cache
+_shapeways_token = {"access_token": None, "expires_at": 0}
+
+app = FastAPI(title="PawPrints", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Serve static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# ─── Routes ───
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    """Serve the main app"""
+    return FileResponse("static/index.html")
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "removebg": bool(REMOVEBG_KEY),
+        "meshy": bool(MESHY_KEY),
+    }
+
+
+@app.post("/api/upload")
+async def upload_photo(file: UploadFile = File(...)):
+    """Upload a pet photo"""
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(400, "Only image files are accepted")
+
+    # Save with unique name
+    ext = Path(file.filename or "photo.jpg").suffix or ".jpg"
+    filename = f"{uuid.uuid4().hex}{ext}"
+    filepath = UPLOAD_DIR / filename
+
+    with open(filepath, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    return {
+        "filename": filename,
+        "path": str(filepath),
+        "size": len(content),
+    }
+
+
+@app.post("/api/generate")
+async def generate_model(data: dict):
+    """
+    Pipeline: remove background → generate 3D model
+    Returns task_id for polling, or model_url if instant
+    """
+    image_path = Path(data.get("image_path", ""))
+    if not image_path.exists():
+        raise HTTPException(400, "Image not found")
+
+    # Step 1: Remove background
+    nobg_path = await remove_background(image_path)
+
+    # Step 2: Generate 3D model
+    task_id = await start_3d_generation(nobg_path)
+
+    if task_id:
+        return {"task_id": task_id, "status": "processing"}
+    
+    # Fallback: return demo model
+    return {"model_url": "/static/model.glb", "status": "demo"}
+
+
+async def remove_background(image_path: Path) -> Path:
+    """Remove background using remove.bg API"""
+    if not REMOVEBG_KEY:
+        # No API key — return original image
+        return image_path
+
+    out_path = UPLOAD_DIR / f"{image_path.stem}_nobg.png"
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        with open(image_path, "rb") as f:
+            resp = await client.post(
+                "https://api.remove.bg/v1.0/removebg",
+                files={"image_file": f},
+                data={"size": "auto"},
+                headers={"X-Api-Key": REMOVEBG_KEY},
+            )
+
+        if resp.status_code == 200:
+            out_path.write_bytes(resp.content)
+            return out_path
+        else:
+            print(f"remove.bg error: {resp.status_code} - {resp.text}")
+            return image_path
+
+
+async def start_3d_generation(image_path: Path) -> Optional[str]:
+    """Start 3D model generation via Meshy.ai"""
+    if not MESHY_KEY:
+        return None
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        with open(image_path, "rb") as f:
+            resp = await client.post(
+                "https://api.meshy.ai/v2/image-to-3d",
+                headers={"Authorization": f"Bearer {MESHY_KEY}"},
+                files={"image": f},
+                data={"mode": "preview"},
+            )
+
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            return data.get("result", data.get("id"))
+        else:
+            print(f"Meshy error: {resp.status_code} - {resp.text}")
+            return None
+
+
+@app.get("/api/model-status/{task_id}")
+async def model_status(task_id: str):
+    """Poll Meshy.ai for model generation status"""
+    if not MESHY_KEY:
+        return {"status": "completed", "model_url": "/static/model.glb"}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            f"https://api.meshy.ai/v2/image-to-3d/{task_id}",
+            headers={"Authorization": f"Bearer {MESHY_KEY}"},
+        )
+
+        if resp.status_code == 200:
+            data = resp.json()
+            status = data.get("status", "unknown")
+
+            if status == "SUCCEEDED":
+                # Download the model
+                model_urls = data.get("model_urls", {})
+                glb_url = model_urls.get("glb") or model_urls.get("obj")
+
+                if glb_url:
+                    model_filename = f"{task_id}.glb"
+                    model_path = MODEL_DIR / model_filename
+
+                    if not model_path.exists():
+                        model_resp = await client.get(glb_url)
+                        if model_resp.status_code == 200:
+                            model_path.write_bytes(model_resp.content)
+
+                    return {
+                        "status": "completed",
+                        "model_url": f"/models/{model_filename}",
+                    }
+
+                return {"status": "completed", "model_url": "/static/model.glb"}
+
+            elif status == "FAILED":
+                return {"status": "failed", "error": data.get("message", "Unknown error")}
+
+            else:
+                progress = data.get("progress", 0)
+                return {"status": "processing", "progress": progress}
+
+        return {"status": "error"}
+
+
+# Serve generated models
+@app.get("/models/{filename}")
+async def serve_model(filename: str):
+    filepath = MODEL_DIR / filename
+    if not filepath.exists():
+        raise HTTPException(404, "Model not found")
+    return FileResponse(filepath, media_type="model/gltf-binary")
+
+
+# ─── Shapeways Integration ───
+
+async def get_shapeways_token() -> Optional[str]:
+    """Get OAuth2 access token from Shapeways"""
+    if not SHAPEWAYS_CLIENT_ID or not SHAPEWAYS_CLIENT_SECRET:
+        return None
+
+    now = time.time()
+    if _shapeways_token["access_token"] and _shapeways_token["expires_at"] > now:
+        return _shapeways_token["access_token"]
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            "https://api.shapeways.com/oauth2/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": SHAPEWAYS_CLIENT_ID,
+                "client_secret": SHAPEWAYS_CLIENT_SECRET,
+            },
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            _shapeways_token["access_token"] = data["access_token"]
+            _shapeways_token["expires_at"] = now + data.get("expires_in", 3600) - 60
+            return data["access_token"]
+        else:
+            print(f"Shapeways token error: {resp.status_code} - {resp.text}")
+            return None
+
+
+@app.get("/api/shapeways/materials")
+async def shapeways_materials():
+    """Fetch available materials from Shapeways"""
+    token = await get_shapeways_token()
+    if not token:
+        return {"error": "Shapeways not configured", "materials": []}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            "https://api.shapeways.com/materials/v1",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        return {"error": f"API error {resp.status_code}"}
+
+
+@app.post("/api/shapeways/price")
+async def shapeways_price(data: dict):
+    """
+    Get a price quote from Shapeways for a model + material.
+    We add our 40% markup on top.
+    """
+    token = await get_shapeways_token()
+    model_id = data.get("model_id")
+    material_id = data.get("material_id")
+
+    if not token or not model_id:
+        # Fallback to local calculation
+        return {"source": "estimated", "note": "Using local price estimate"}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            f"https://api.shapeways.com/models/{model_id}/v1",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if resp.status_code == 200:
+            model_data = resp.json()
+            materials = model_data.get("materials", {})
+
+            if material_id and str(material_id) in materials:
+                mat_info = materials[str(material_id)]
+                base_price = float(mat_info.get("price", 0))
+                markup = base_price * 0.40
+                total = base_price + markup
+
+                return {
+                    "source": "shapeways",
+                    "base_price": round(base_price, 2),
+                    "markup": round(markup, 2),
+                    "total": round(total, 2),
+                    "currency": "USD",
+                }
+
+            return {"source": "shapeways", "materials": materials}
+
+    return {"source": "estimated"}
+
+
+@app.post("/api/shapeways/upload-model")
+async def shapeways_upload_model(data: dict):
+    """Upload a model file to Shapeways for quoting/ordering"""
+    token = await get_shapeways_token()
+    if not token:
+        return {"error": "Shapeways not configured"}
+
+    model_path = Path(data.get("model_path", ""))
+    if not model_path.exists():
+        raise HTTPException(400, "Model file not found")
+
+    import base64
+    model_data = base64.b64encode(model_path.read_bytes()).decode()
+    filename = model_path.name
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(
+            "https://api.shapeways.com/models/v1",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "fileName": filename,
+                "file": model_data,
+                "hasRightsToModel": 1,
+                "acceptTermsAndConditions": 1,
+            },
+        )
+        if resp.status_code in (200, 201):
+            return resp.json()
+        return {"error": f"Upload failed: {resp.status_code}", "detail": resp.text}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

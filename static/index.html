@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PawPrints — Turn Your Pet Into a Statue</title>
+    <meta name="description" content="Upload a photo of your pet and we'll turn them into a beautiful 3D-printed statue. Choose your size, material, and finish.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+
+    <!-- three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+</head>
+<body>
+
+<!-- ─── Nav ─── -->
+<nav class="nav">
+    <a href="/" class="nav-logo">🐾 <span>Paw</span>Prints</a>
+    <div class="nav-step" id="nav-step">Step 1 of 3</div>
+</nav>
+
+<!-- ─── Step Dots ─── -->
+<div class="steps">
+    <div class="step-dot active"></div>
+    <div class="step-dot"></div>
+    <div class="step-dot"></div>
+</div>
+
+<div class="container">
+
+    <!-- ═══════════ SCREEN 1: Upload ═══════════ -->
+    <div class="screen active" id="screen-upload">
+        <div class="hero">
+            <h1>Turn your pet into<br>a keepsake statue</h1>
+            <p>Upload a photo and we'll create a custom 3D-printed statue of your furry friend</p>
+        </div>
+
+        <div class="upload-area" id="upload-area">
+            <div class="icon">📸</div>
+            <h3>Upload a photo of your pet</h3>
+            <p>JPG or PNG • Clear, well-lit photo works best</p>
+        </div>
+
+        <input type="file" id="file-input" accept="image/*" hidden>
+        <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
+
+        <div class="upload-actions">
+            <button class="btn btn-primary" id="btn-camera">📷 Take Photo</button>
+            <button class="btn btn-secondary" id="btn-gallery">🖼️ Gallery</button>
+        </div>
+
+        <!-- Preview (hidden until photo selected) -->
+        <div id="preview-section" style="display:none;">
+            <div class="preview-container">
+                <img id="preview-img" alt="Your pet photo">
+                <div class="preview-overlay">
+                    <span class="preview-badge">📷 Your Photo</span>
+                </div>
+            </div>
+            <div style="display:flex; gap:10px; margin-top:12px;">
+                <button class="btn btn-secondary" onclick="removePhoto()" style="flex:0 0 auto; width:auto; padding:14px 20px;">✕</button>
+                <button class="btn btn-primary btn-lg" onclick="startProcessing()">Create My Statue →</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════ SCREEN 2: Customise ═══════════ -->
+    <div class="screen" id="screen-customise">
+
+        <!-- 3D Viewer -->
+        <div class="viewer-container" id="viewer-3d">
+            <div class="viewer-hint">Drag to rotate · Pinch to zoom</div>
+        </div>
+
+        <!-- Size -->
+        <div class="config-card">
+            <h3>📐 Size</h3>
+            <div class="size-control">
+                <div class="size-header">
+                    <span class="size-label">Print height</span>
+                    <span class="size-value" id="size-value">150mm</span>
+                </div>
+                <input type="range" id="size-slider" min="10" max="300" value="150" step="5">
+                <div class="size-limits">
+                    <span id="size-min-label">10mm</span>
+                    <span id="size-max-label">300mm</span>
+                </div>
+                <div class="size-warning" id="size-warning"></div>
+            </div>
+        </div>
+
+        <!-- Material -->
+        <div class="config-card">
+            <h3>🧱 Material</h3>
+            <div class="material-grid" id="material-grid"></div>
+        </div>
+
+        <!-- Colour -->
+        <div class="config-card">
+            <h3>🎨 Colour</h3>
+            <div class="color-row" id="color-options"></div>
+        </div>
+
+        <!-- Finish -->
+        <div class="config-card">
+            <h3>✨ Finish</h3>
+            <div class="finish-row" id="finish-options"></div>
+        </div>
+
+        <!-- Price Quote -->
+        <div class="quote-card">
+            <div class="quote-label">Estimated Price</div>
+            <div class="quote-price" id="quote-price">$45.00 AUD</div>
+            <div class="quote-breakdown" id="quote-breakdown">
+                ABS Plastic · 150mm · Standard<br>
+                Manufacturing: $32.00 + Service: $13.00
+            </div>
+        </div>
+
+        <button class="btn btn-accent btn-lg" id="btn-order" onclick="goToOrder()">
+            Continue to Order →
+        </button>
+
+        <button class="btn btn-secondary" onclick="showScreen('upload')" style="margin-top:10px;">
+            ← Change Photo
+        </button>
+    </div>
+
+    <!-- ═══════════ SCREEN 3: Order ═══════════ -->
+    <div class="screen" id="screen-order">
+        <div class="hero">
+            <h1>Review Your Order</h1>
+            <p>Check the details below and place your order</p>
+        </div>
+
+        <div class="success-card">
+            <div class="row">
+                <span class="label">Material</span>
+                <span class="value" id="order-material">ABS Plastic</span>
+            </div>
+            <div class="row">
+                <span class="label">Size</span>
+                <span class="value" id="order-size">150mm</span>
+            </div>
+            <div class="row">
+                <span class="label">Colour</span>
+                <span class="value" id="order-color">White</span>
+            </div>
+            <div class="row">
+                <span class="label">Finish</span>
+                <span class="value" id="order-finish">Standard</span>
+            </div>
+            <div class="row">
+                <span class="label">Price</span>
+                <span class="value" id="order-price">$45.00 AUD</span>
+            </div>
+        </div>
+
+        <div class="quote-card">
+            <div class="quote-label">Total</div>
+            <div class="quote-price" id="order-total">$45.00 AUD</div>
+            <div class="quote-breakdown">Shipping calculated at checkout</div>
+        </div>
+
+        <button class="btn btn-accent btn-lg" onclick="placeOrder()">
+            🛒 Place Order
+        </button>
+
+        <button class="btn btn-secondary" onclick="showScreen('customise')" style="margin-top:10px;">
+            ← Back to Customise
+        </button>
+    </div>
+
+    <!-- ═══════════ SCREEN 4: Success ═══════════ -->
+    <div class="screen" id="screen-success">
+        <div class="success-icon">🎉</div>
+        <div class="hero">
+            <h1>Order Placed!</h1>
+            <p>We'll start crafting your pet statue right away. You'll receive updates via email.</p>
+        </div>
+
+        <div class="success-card">
+            <div class="row">
+                <span class="label">Order ID</span>
+                <span class="value" id="success-order-id">PP-XXXX</span>
+            </div>
+            <div class="row">
+                <span class="label">Status</span>
+                <span class="value">Processing</span>
+            </div>
+            <div class="row">
+                <span class="label">Estimated Delivery</span>
+                <span class="value">2-3 weeks</span>
+            </div>
+        </div>
+
+        <button class="btn btn-primary btn-lg" onclick="location.reload()">
+            Create Another Statue
+        </button>
+    </div>
+
+</div>
+
+<!-- ─── Processing Overlay ─── -->
+<div class="processing-overlay" id="processing-overlay">
+    <div class="spinner"></div>
+    <div class="processing-text" id="processing-text">Processing your photo...</div>
+    <div class="processing-sub" id="processing-sub">This usually takes 2-4 minutes</div>
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+</div>
+
+<footer class="footer">
+    🐾 PawPrints · Handcrafted pet statues · Made with love in Australia
+</footer>
+
+<script src="/static/js/materials.js"></script>
+<script src="/static/js/viewer.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

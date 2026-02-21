@@ -1,0 +1,126 @@
+// PawPrints — Material & Pricing Data
+// Based on Shapeways design guidelines
+
+const MATERIALS = {
+    abs: {
+        id: 'abs',
+        name: 'ABS Plastic',
+        tagline: 'Durable & lightweight',
+        description: 'High-resolution FDM/FFF print. Durable, great for display.',
+        icon: '🏷️',
+        tier: '$',
+        swatchColor: '#E8E8E8',
+        swatchStyle: 'background: linear-gradient(135deg, #F0F0F0, #D0D0D0)',
+        // Shapeways constraints
+        minSize: 10,   // mm
+        maxSize: 300,   // mm bounding box
+        minWall: 1.0,   // mm wall thickness
+        basePricePerCm3: 0.28,  // USD per cm³
+        setupFee: 5.00,
+        colors: [
+            { name: 'White',    hex: '#F5F5F0' },
+            { name: 'Black',    hex: '#1A1A1A' },
+            { name: 'Red',      hex: '#CC3333' },
+            { name: 'Blue',     hex: '#3366CC' },
+            { name: 'Green',    hex: '#339966' },
+        ],
+        finishes: ['Standard', 'Polished', 'Matte'],
+        finishMultiplier: { 'Standard': 1.0, 'Polished': 1.2, 'Matte': 1.1 },
+    },
+    sla: {
+        id: 'sla',
+        name: 'Full Colour Sandstone',
+        tagline: 'Stone-like with full colour',
+        description: 'Binder jet / SLA with stone-like texture. Supports full RGB colour.',
+        icon: '🎨',
+        tier: '$$',
+        swatchColor: '#D4A373',
+        swatchStyle: 'background: linear-gradient(135deg, #D4A373, #B8956A)',
+        minSize: 15,
+        maxSize: 200,   // mm — more limited build volume
+        minWall: 2.0,
+        basePricePerCm3: 0.75,
+        setupFee: 8.00,
+        colors: [
+            { name: 'Full Colour', hex: 'rainbow' },
+            { name: 'Sandstone',   hex: '#D4A373' },
+            { name: 'Charcoal',    hex: '#3D3D3D' },
+            { name: 'Terracotta',  hex: '#C45E3A' },
+            { name: 'Sage',        hex: '#8FBC8F' },
+        ],
+        finishes: ['Natural', 'Coated', 'Polished'],
+        finishMultiplier: { 'Natural': 1.0, 'Coated': 1.15, 'Polished': 1.3 },
+    },
+    bronze: {
+        id: 'bronze',
+        name: 'Lost Wax Bronze',
+        tagline: 'Heirloom quality',
+        description: 'Investment cast bronze via lost wax method. True metal, lifetime keepsake.',
+        icon: '👑',
+        tier: '$$$',
+        swatchColor: '#CD7F32',
+        swatchStyle: 'background: linear-gradient(135deg, #CD7F32, #A0652A)',
+        minSize: 20,
+        maxSize: 150,   // mm — most limited
+        minWall: 3.0,
+        basePricePerCm3: 6.00,
+        setupFee: 25.00,
+        colors: [
+            { name: 'Raw Bronze',     hex: '#CD7F32' },
+            { name: 'Polished Gold',  hex: '#FFD700' },
+            { name: 'Antique Patina', hex: '#4A6741' },
+            { name: 'Brushed Nickel', hex: '#C0C0C0' },
+        ],
+        finishes: ['Raw', 'Polished', 'Patina', 'Gold Plated'],
+        finishMultiplier: { 'Raw': 1.0, 'Polished': 1.3, 'Patina': 1.2, 'Gold Plated': 1.8 },
+    }
+};
+
+const MARKUP = 0.40; // 40% business margin
+
+/**
+ * Calculate price for a given material, height, and finish
+ * Estimates volume from height assuming a rough pet statue proportion
+ */
+function calculatePrice(materialId, heightMm, finish) {
+    const mat = MATERIALS[materialId];
+    if (!mat) return null;
+
+    // Estimate volume: pet statue is roughly cylindrical
+    // width ≈ 0.5 * height, depth ≈ 0.4 * height
+    // Effective volume ≈ 0.15 * h³ (empirical for organic shapes)
+    const hCm = heightMm / 10;
+    const estimatedVolumeCm3 = 0.12 * Math.pow(hCm, 2.4); // slightly less than cubic scaling
+
+    const materialCost = estimatedVolumeCm3 * mat.basePricePerCm3;
+    const finishMult = mat.finishMultiplier[finish] || 1.0;
+    const baseCost = (materialCost * finishMult) + mat.setupFee;
+    const markup = baseCost * MARKUP;
+    const total = baseCost + markup;
+
+    return {
+        volume: estimatedVolumeCm3,
+        materialCost: materialCost,
+        setupFee: mat.setupFee,
+        finishMultiplier: finishMult,
+        baseCost: baseCost,
+        markup: markup,
+        total: total,
+    };
+}
+
+/**
+ * Validate size against material constraints
+ */
+function validateSize(materialId, heightMm) {
+    const mat = MATERIALS[materialId];
+    if (!mat) return { valid: false, message: 'Unknown material' };
+
+    if (heightMm < mat.minSize) {
+        return { valid: false, message: `Minimum size for ${mat.name} is ${mat.minSize}mm` };
+    }
+    if (heightMm > mat.maxSize) {
+        return { valid: false, message: `Maximum size for ${mat.name} is ${mat.maxSize}mm`, clamped: mat.maxSize };
+    }
+    return { valid: true };
+}
