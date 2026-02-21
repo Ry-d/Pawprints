@@ -180,8 +180,8 @@ body {
 
 .upload-preview img {
     width: 100%;
-    max-height: 200px;
-    object-fit: cover;
+    max-height: 40vh;
+    object-fit: contain;
     border-radius: var(--radius-sm);
 }
 
@@ -243,6 +243,17 @@ body {
 }
 
 .example-link:hover { color: var(--primary); }
+
+/* ─── Responsive Images ─── */
+.preview-container img,
+.approve-section img,
+.order-preview img {
+    width: 100%;
+    max-height: 50vh;
+    object-fit: contain;
+    display: block;
+    border-radius: var(--radius);
+}
 
 /* ─── Approve Screen ─── */
 .approve-section {
