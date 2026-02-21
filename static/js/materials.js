@@ -76,26 +76,42 @@ const MATERIALS = {
     }
 };
 
-const MARKUP = 0.40; // 40% business margin
+// Tiered margins — higher % on cheap materials, lower on premium
+// Minimum $20 profit per order after API costs (~$2 remove.bg + ~$3 Meshy)
+const API_COST_PER_ORDER = 5.00; // approximate fixed cost per generation
+
+const MARGIN_TIERS = {
+    abs:    0.90,  // 90% — low base cost needs high margin
+    sla:    0.65,  // 65% — mid-range
+    bronze: 0.45,  // 45% — high base, lower % still big profit
+};
+
+const MIN_PROFIT = 20.00; // floor: at least $20 profit per order
 
 /**
  * Calculate price for a given material, height, and finish
- * Estimates volume from height assuming a rough pet statue proportion
+ * Estimates volume from height assuming rough pet statue proportions
  */
 function calculatePrice(materialId, heightMm, finish) {
     const mat = MATERIALS[materialId];
     if (!mat) return null;
 
-    // Estimate volume: pet statue is roughly cylindrical
-    // width ≈ 0.5 * height, depth ≈ 0.4 * height
-    // Effective volume ≈ 0.15 * h³ (empirical for organic shapes)
     const hCm = heightMm / 10;
-    const estimatedVolumeCm3 = 0.12 * Math.pow(hCm, 2.4); // slightly less than cubic scaling
+    const estimatedVolumeCm3 = 0.12 * Math.pow(hCm, 2.4);
 
     const materialCost = estimatedVolumeCm3 * mat.basePricePerCm3;
     const finishMult = mat.finishMultiplier[finish] || 1.0;
     const baseCost = (materialCost * finishMult) + mat.setupFee;
-    const markup = baseCost * MARKUP;
+
+    // Tiered margin
+    const marginPct = MARGIN_TIERS[materialId] || 0.65;
+    let markup = baseCost * marginPct;
+
+    // Enforce minimum profit floor
+    if (markup < (MIN_PROFIT + API_COST_PER_ORDER)) {
+        markup = MIN_PROFIT + API_COST_PER_ORDER;
+    }
+
     const total = baseCost + markup;
 
     return {
@@ -104,7 +120,10 @@ function calculatePrice(materialId, heightMm, finish) {
         setupFee: mat.setupFee,
         finishMultiplier: finishMult,
         baseCost: baseCost,
+        marginPct: marginPct,
         markup: markup,
+        apiCost: API_COST_PER_ORDER,
+        profit: markup - API_COST_PER_ORDER,
         total: total,
     };
 }
