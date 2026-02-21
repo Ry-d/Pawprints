@@ -229,8 +229,7 @@ async def process_image_gemini(image_path: Path, product_type: str) -> Path:
     async with httpx.AsyncClient(timeout=120) as client:
         # Try multiple model names in order of likelihood
         models = [
-            "gemini-2.0-flash-preview-image-generation",
-            "gemini-2.0-flash-exp",
+            "gemini-2.5-flash-image",
             "gemini-2.0-flash",
         ]
         resp = None
