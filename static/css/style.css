@@ -245,14 +245,26 @@ body {
 .example-link:hover { color: var(--primary); }
 
 /* ─── Responsive Images ─── */
-.preview-container img,
-.approve-section img,
-.order-preview img {
-    width: 100%;
-    max-height: 50vh;
-    object-fit: contain;
+#approve-img,
+#banked-img,
+#preview-img-statue,
+#preview-img-keyring,
+.order-preview img,
+.upload-preview img {
+    width: 100% !important;
+    max-height: 40vh !important;
+    height: auto !important;
+    object-fit: contain !important;
     display: block;
     border-radius: var(--radius);
+}
+
+#approve-preview,
+#banked-preview {
+    max-height: 42vh;
+    overflow: hidden;
+    border-radius: var(--radius);
+    background: var(--bg);
 }
 
 /* ─── Approve Screen ─── */
