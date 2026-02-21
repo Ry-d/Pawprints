@@ -1,8 +1,8 @@
 // PawPrints — Main App Controller
-// Manages screen flow, state, and API calls
 
 const APP = {
     currentScreen: 'upload',
+    productType: null, // 'statue' or 'keyring'
     uploadedFile: null,
     previewUrl: null,
     modelUrl: null,
@@ -11,111 +11,97 @@ const APP = {
     selectedFinish: null,
     selectedHeight: 150,
     price: null,
+    activeUploadTarget: null,
 };
 
-// ─── Screen Navigation ───
+// ─── Navigation ───
 function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    const screen = document.getElementById(`screen-${screenId}`);
-    if (screen) screen.classList.add('active');
+    document.getElementById(`screen-${screenId}`).classList.add('active');
     APP.currentScreen = screenId;
-    updateStepIndicator(screenId);
-    updateNavStep(screenId);
+
+    const steps = ['upload', 'customise', 'order'];
+    const idx = steps.indexOf(screenId);
+    document.querySelectorAll('.step-dot').forEach((d, i) => {
+        d.className = 'step-dot';
+        if (i < idx) d.classList.add('done');
+        if (i === idx) d.classList.add('active');
+    });
+
+    const labels = { upload: 'Step 1 of 3', customise: 'Step 2 of 3', order: 'Step 3 of 3', success: '✓ Complete' };
+    document.getElementById('nav-step').textContent = labels[screenId] || '';
+    document.getElementById('nav-back').style.display = idx > 0 ? '' : 'none';
     window.scrollTo(0, 0);
 }
 
-function updateStepIndicator(screenId) {
-    const steps = ['upload', 'customise', 'order'];
-    const idx = steps.indexOf(screenId);
-    document.querySelectorAll('.step-dot').forEach((dot, i) => {
-        dot.className = 'step-dot';
-        if (i < idx) dot.classList.add('done');
-        if (i === idx) dot.classList.add('active');
-    });
+function goBack() {
+    const flow = ['upload', 'customise', 'order'];
+    const idx = flow.indexOf(APP.currentScreen);
+    if (idx > 0) showScreen(flow[idx - 1]);
 }
 
-function updateNavStep(screenId) {
-    const labels = {
-        'upload': 'Step 1 of 3',
-        'customise': 'Step 2 of 3',
-        'order': 'Step 3 of 3',
-        'success': '✓ Complete',
-    };
-    const el = document.getElementById('nav-step');
-    if (el) el.textContent = labels[screenId] || '';
+// ─── Product Selection (Screen 1) ───
+function selectProduct(type) {
+    APP.productType = type;
+    document.querySelectorAll('.product-card').forEach(c => c.classList.remove('selected'));
+    document.querySelectorAll('.product-upload-area').forEach(u => u.style.display = 'none');
+
+    document.getElementById(`card-${type}`).classList.add('selected');
+    document.getElementById(`upload-${type}`).style.display = 'block';
+
+    checkUploadReady();
 }
 
-// ─── Upload Screen ───
-function initUpload() {
-    const area = document.getElementById('upload-area');
-    const fileInput = document.getElementById('file-input');
-    const cameraInput = document.getElementById('camera-input');
-
-    // Click to upload
-    area.addEventListener('click', () => fileInput.click());
-
-    // Drag & drop
-    area.addEventListener('dragover', e => { e.preventDefault(); area.classList.add('dragover'); });
-    area.addEventListener('dragleave', () => area.classList.remove('dragover'));
-    area.addEventListener('drop', e => {
-        e.preventDefault();
-        area.classList.remove('dragover');
-        if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-    });
-
-    // File input change
-    fileInput.addEventListener('change', e => {
-        if (e.target.files.length) handleFile(e.target.files[0]);
-    });
-
-    // Camera button
-    document.getElementById('btn-camera').addEventListener('click', e => {
-        e.stopPropagation();
-        cameraInput.click();
-    });
-
-    cameraInput.addEventListener('change', e => {
-        if (e.target.files.length) handleFile(e.target.files[0]);
-    });
-
-    // Gallery button
-    document.getElementById('btn-gallery').addEventListener('click', e => {
-        e.stopPropagation();
-        fileInput.click();
-    });
+function triggerCamera(type) {
+    APP.activeUploadTarget = type;
+    document.getElementById('camera-input').click();
 }
 
-function handleFile(file) {
-    if (!file.type.startsWith('image/')) {
-        alert('Please upload an image file (JPG, PNG, etc.)');
-        return;
-    }
+function triggerGallery(type) {
+    APP.activeUploadTarget = type;
+    document.getElementById('file-input').click();
+}
 
+function handleFile(file, target) {
+    if (!file || !file.type.startsWith('image/')) return;
     APP.uploadedFile = file;
     APP.previewUrl = URL.createObjectURL(file);
 
-    // Show preview
-    document.getElementById('preview-img').src = APP.previewUrl;
-    document.getElementById('preview-section').style.display = 'block';
-    document.getElementById('upload-area').style.display = 'none';
+    const img = document.getElementById(`preview-img-${target}`);
+    const container = document.getElementById(`preview-${target}`);
+    img.src = APP.previewUrl;
+    container.style.display = 'block';
+    checkUploadReady();
 }
 
-function removePhoto() {
+function removePhoto(type) {
     APP.uploadedFile = null;
     APP.previewUrl = null;
-    document.getElementById('preview-section').style.display = 'none';
-    document.getElementById('upload-area').style.display = 'block';
+    document.getElementById(`preview-${type}`).style.display = 'none';
     document.getElementById('file-input').value = '';
     document.getElementById('camera-input').value = '';
+    checkUploadReady();
 }
 
+function checkUploadReady() {
+    document.getElementById('btn-continue-upload').disabled = !(APP.productType && APP.uploadedFile);
+}
+
+// ─── File Input Listeners ───
+document.getElementById('file-input').addEventListener('change', e => {
+    if (e.target.files.length && APP.activeUploadTarget) handleFile(e.target.files[0], APP.activeUploadTarget);
+});
+document.getElementById('camera-input').addEventListener('change', e => {
+    if (e.target.files.length && APP.activeUploadTarget) handleFile(e.target.files[0], APP.activeUploadTarget);
+});
+
+// ─── Processing ───
 function startProcessing() {
     if (!APP.uploadedFile) return;
     showProcessing('Uploading your photo...', 'This will take a moment');
     uploadAndProcess(APP.uploadedFile);
 }
 
-// ─── Processing ───
 function showProcessing(title, sub) {
     document.getElementById('processing-text').textContent = title;
     document.getElementById('processing-sub').textContent = sub;
@@ -133,47 +119,39 @@ function setProgress(pct) {
 
 async function uploadAndProcess(file) {
     try {
-        // Step 1: Upload
         setProgress(10);
         const formData = new FormData();
         formData.append('file', file);
-
         const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
         if (!uploadRes.ok) throw new Error('Upload failed');
         const uploadData = await uploadRes.json();
 
-        // Step 2: Generate 3D model
         setProgress(25);
         document.getElementById('processing-text').textContent = 'Removing background...';
-        document.getElementById('processing-sub').textContent = 'Isolating your pet';
 
         const genRes = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image_path: uploadData.path }),
+            body: JSON.stringify({ image_path: uploadData.path, product_type: APP.productType }),
         });
         if (!genRes.ok) throw new Error('Generation failed');
         const genData = await genRes.json();
 
-        // Step 3: Poll for model completion
         if (genData.task_id) {
             document.getElementById('processing-text').textContent = 'Creating 3D model...';
-            document.getElementById('processing-sub').textContent = 'This usually takes 2-4 minutes';
+            document.getElementById('processing-sub').textContent = 'Usually 2-4 minutes';
             await pollModelStatus(genData.task_id);
         } else if (genData.model_url) {
             APP.modelUrl = genData.model_url;
         }
 
-        // Done — go to customise
         setProgress(100);
         hideProcessing();
         initCustomise();
         showScreen('customise');
-
     } catch (err) {
         hideProcessing();
-        console.error('Processing error:', err);
-        // Fallback: use demo model
+        console.error(err);
         APP.modelUrl = '/static/model.glb';
         initCustomise();
         showScreen('customise');
@@ -184,54 +162,90 @@ async function pollModelStatus(taskId) {
     for (let i = 0; i < 120; i++) {
         await new Promise(r => setTimeout(r, 3000));
         setProgress(25 + Math.min(i * 0.6, 70));
-
         try {
             const res = await fetch(`/api/model-status/${taskId}`);
             const data = await res.json();
-
-            if (data.status === 'completed') {
-                APP.modelUrl = data.model_url;
-                return;
-            }
-            if (data.status === 'failed') {
-                throw new Error('Model generation failed');
-            }
-
-            document.getElementById('processing-sub').textContent = 
-                `Generating... ${data.progress || Math.round(25 + i * 0.6)}%`;
-        } catch (e) {
-            // continue polling
-        }
+            if (data.status === 'completed') { APP.modelUrl = data.model_url; return; }
+            if (data.status === 'failed') throw new Error('Failed');
+            document.getElementById('processing-sub').textContent = `Generating... ${data.progress || Math.round(25 + i * 0.6)}%`;
+        } catch (e) { /* continue */ }
     }
-    throw new Error('Timeout waiting for model');
+    throw new Error('Timeout');
 }
 
-// ─── Customise Screen ───
+// ─── Customise (Screen 2) ───
 function initCustomise() {
     const modelUrl = APP.modelUrl || '/static/model.glb';
+    const container = document.getElementById('viewer-3d');
+    // Clear canvas but keep buttons
+    const existingCanvas = container.querySelector('canvas');
+    if (existingCanvas) existingCanvas.remove();
 
-    // Init 3D viewer
-    const viewerContainer = document.getElementById('viewer-3d');
-    viewerContainer.innerHTML = '';
     initViewer('viewer-3d');
     loadModel(modelUrl);
 
-    // Set defaults
+    // Set product toggle
+    document.querySelectorAll('.toggle-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.type === APP.productType);
+    });
+
+    // Keyring: lock size
+    const isKeyring = APP.productType === 'keyring';
+    const sizeCard = document.getElementById('size-card');
+
+    if (isKeyring) {
+        APP.selectedHeight = 50;
+        sizeCard.style.opacity = '0.5';
+        sizeCard.style.pointerEvents = 'none';
+        document.getElementById('size-slider').value = 50;
+        document.getElementById('size-badge').textContent = '50mm (fixed)';
+    } else {
+        APP.selectedHeight = 150;
+        sizeCard.style.opacity = '';
+        sizeCard.style.pointerEvents = '';
+        document.getElementById('size-slider').value = 150;
+    }
+
     APP.selectedMaterial = 'abs';
     APP.selectedColor = MATERIALS.abs.colors[0];
     APP.selectedFinish = MATERIALS.abs.finishes[0];
-    APP.selectedHeight = 150;
 
     renderMaterials();
     renderOptions();
+    updateSizeUI();
     updatePrice();
     bindCustomiseEvents();
 }
 
-function renderMaterials() {
-    const container = document.getElementById('material-grid');
-    container.innerHTML = '';
+function switchProduct(type) {
+    APP.productType = type;
+    document.querySelectorAll('.toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
 
+    const isKeyring = type === 'keyring';
+    const sizeCard = document.getElementById('size-card');
+
+    if (isKeyring) {
+        APP.selectedHeight = 50;
+        sizeCard.style.opacity = '0.5';
+        sizeCard.style.pointerEvents = 'none';
+        document.getElementById('size-slider').value = 50;
+        document.getElementById('size-badge').textContent = '50mm (fixed)';
+    } else {
+        APP.selectedHeight = 150;
+        sizeCard.style.opacity = '';
+        sizeCard.style.pointerEvents = '';
+        document.getElementById('size-slider').value = 150;
+        document.getElementById('size-badge').textContent = '150mm';
+    }
+
+    setModelScale(APP.selectedHeight);
+    updateSizeUI();
+    updatePrice();
+}
+
+function renderMaterials() {
+    const grid = document.getElementById('material-grid');
+    grid.innerHTML = '';
     Object.values(MATERIALS).forEach(mat => {
         const div = document.createElement('div');
         div.className = `material-option ${mat.id === APP.selectedMaterial ? 'selected' : ''}`;
@@ -239,13 +253,13 @@ function renderMaterials() {
         div.innerHTML = `
             <div class="material-swatch" style="${mat.swatchStyle}"></div>
             <div class="material-info">
-                <div class="material-name">${mat.icon} ${mat.name}</div>
+                <div class="material-name">${mat.name}</div>
                 <div class="material-desc">${mat.tagline}</div>
             </div>
             <div class="material-price-tag">${mat.tier}</div>
         `;
         div.addEventListener('click', () => selectMaterial(mat.id));
-        container.appendChild(div);
+        grid.appendChild(div);
     });
 }
 
@@ -255,21 +269,20 @@ function selectMaterial(matId) {
     APP.selectedColor = mat.colors[0];
     APP.selectedFinish = mat.finishes[0];
 
-    // Update material selection UI
     document.querySelectorAll('.material-option').forEach(el => {
         el.classList.toggle('selected', el.dataset.id === matId);
     });
 
-    // Clamp height
-    const validation = validateSize(matId, APP.selectedHeight);
-    if (!validation.valid && validation.clamped) {
-        APP.selectedHeight = validation.clamped;
-        document.getElementById('size-slider').value = APP.selectedHeight;
+    // Clamp size for statue
+    if (APP.productType !== 'keyring') {
+        const v = validateSize(matId, APP.selectedHeight);
+        if (!v.valid && v.clamped) {
+            APP.selectedHeight = v.clamped;
+            document.getElementById('size-slider').value = APP.selectedHeight;
+        }
+        document.getElementById('size-slider').max = mat.maxSize;
+        document.getElementById('size-slider').min = mat.minSize;
     }
-
-    // Update slider max
-    document.getElementById('size-slider').max = mat.maxSize;
-    document.getElementById('size-slider').min = mat.minSize;
 
     renderOptions();
     updateSizeUI();
@@ -280,113 +293,142 @@ function renderOptions() {
     const mat = MATERIALS[APP.selectedMaterial];
 
     // Colours
-    const colorContainer = document.getElementById('color-options');
-    colorContainer.innerHTML = '';
-    mat.colors.forEach((color, idx) => {
+    const cc = document.getElementById('color-options');
+    cc.innerHTML = '';
+    mat.colors.forEach((color, i) => {
         const dot = document.createElement('div');
-        dot.className = `color-dot ${idx === 0 ? 'selected' : ''}`;
-        if (color.hex === 'rainbow') {
-            dot.classList.add('rainbow');
-        } else {
-            dot.style.backgroundColor = color.hex;
-        }
+        dot.className = `color-dot ${i === 0 ? 'selected' : ''}`;
+        if (color.hex === 'rainbow') dot.classList.add('rainbow');
+        else dot.style.backgroundColor = color.hex;
         dot.title = color.name;
         dot.addEventListener('click', () => {
             APP.selectedColor = color;
-            document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('selected'));
+            cc.querySelectorAll('.color-dot').forEach(d => d.classList.remove('selected'));
             dot.classList.add('selected');
-            if (color.hex !== 'rainbow') {
-                setModelColor(color.hex);
-            } else {
-                resetModelColor();
-            }
+            if (color.hex !== 'rainbow') setModelColor(color.hex); else resetModelColor();
         });
-        colorContainer.appendChild(dot);
+        cc.appendChild(dot);
     });
 
     // Finishes
-    const finishContainer = document.getElementById('finish-options');
-    finishContainer.innerHTML = '';
-    mat.finishes.forEach((finish, idx) => {
+    const fc = document.getElementById('finish-options');
+    fc.innerHTML = '';
+    mat.finishes.forEach((finish, i) => {
         const chip = document.createElement('div');
-        chip.className = `finish-chip ${idx === 0 ? 'selected' : ''}`;
+        chip.className = `finish-chip ${i === 0 ? 'selected' : ''}`;
         chip.textContent = finish;
         chip.addEventListener('click', () => {
             APP.selectedFinish = finish;
-            document.querySelectorAll('.finish-chip').forEach(c => c.classList.remove('selected'));
+            fc.querySelectorAll('.finish-chip').forEach(c => c.classList.remove('selected'));
             chip.classList.add('selected');
             updatePrice();
         });
-        finishContainer.appendChild(chip);
+        fc.appendChild(chip);
     });
+}
+
+function setPreset(size) {
+    if (APP.productType === 'keyring') return;
+    APP.selectedHeight = size;
+    document.getElementById('size-slider').value = size;
+    document.querySelectorAll('.preset-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.size) === size);
+    });
+    setModelScale(size);
+    updateSizeUI();
+    updatePrice();
 }
 
 function bindCustomiseEvents() {
     const slider = document.getElementById('size-slider');
     slider.addEventListener('input', () => {
         APP.selectedHeight = parseInt(slider.value);
-        updateSizeUI();
+        document.querySelectorAll('.preset-btn').forEach(b => {
+            b.classList.toggle('active', parseInt(b.dataset.size) === APP.selectedHeight);
+        });
         setModelScale(APP.selectedHeight);
+        updateSizeUI();
         updatePrice();
     });
 }
 
 function updateSizeUI() {
     const mat = MATERIALS[APP.selectedMaterial];
-    document.getElementById('size-value').textContent = APP.selectedHeight + 'mm';
-    document.getElementById('size-min-label').textContent = mat.minSize + 'mm';
-    document.getElementById('size-max-label').textContent = mat.maxSize + 'mm';
-
-    const validation = validateSize(APP.selectedMaterial, APP.selectedHeight);
-    const warning = document.getElementById('size-warning');
-    if (!validation.valid) {
-        warning.textContent = '⚠️ ' + validation.message;
-        warning.classList.add('visible');
-    } else {
-        warning.classList.remove('visible');
+    if (APP.productType !== 'keyring') {
+        document.getElementById('size-badge').textContent = APP.selectedHeight + 'mm';
+        document.getElementById('size-min-label').textContent = mat.minSize + 'mm';
+        document.getElementById('size-max-label').textContent = mat.maxSize + 'mm';
     }
+
+    const v = validateSize(APP.selectedMaterial, APP.selectedHeight);
+    const w = document.getElementById('size-warning');
+    if (!v.valid) { w.textContent = '⚠️ ' + v.message; w.classList.add('visible'); }
+    else w.classList.remove('visible');
 }
 
 function updatePrice() {
     const result = calculatePrice(APP.selectedMaterial, APP.selectedHeight, APP.selectedFinish);
     if (!result) return;
-
     APP.price = result;
-    document.getElementById('quote-price').textContent = '$' + result.total.toFixed(2) + ' AUD';
-    document.getElementById('quote-breakdown').innerHTML = `
-        ${MATERIALS[APP.selectedMaterial].name} · ${APP.selectedHeight}mm · ${APP.selectedFinish}<br>
-        Manufacturing: $${result.baseCost.toFixed(2)} + Service: $${result.markup.toFixed(2)}
-    `;
 
-    const orderBtn = document.getElementById('btn-order');
-    const validation = validateSize(APP.selectedMaterial, APP.selectedHeight);
-    orderBtn.disabled = !validation.valid;
+    // Update all price displays
+    const priceStr = '$' + result.total.toFixed(2) + ' AUD';
+    document.getElementById('btn-order').textContent = `Continue · ${priceStr}`;
 }
 
-// ─── Order Screen ───
+function resetView() {
+    if (viewerControls) {
+        viewerControls.reset();
+        viewerControls.autoRotate = true;
+    }
+}
+
+// ─── Order (Screen 3) ───
 function goToOrder() {
-    showScreen('order');
-    renderOrderSummary();
-}
+    // Capture 3D viewer snapshot
+    if (viewerRenderer) {
+        viewerRenderer.render(viewerScene, viewerCamera);
+        const dataUrl = viewerRenderer.domElement.toDataURL('image/png');
+        document.getElementById('order-preview-img').src = dataUrl;
+    }
 
-function renderOrderSummary() {
     const mat = MATERIALS[APP.selectedMaterial];
+    const priceStr = '$' + APP.price.total.toFixed(2) + ' AUD';
+
+    document.getElementById('order-total-price').textContent = priceStr;
+    document.getElementById('order-product').textContent = APP.productType === 'keyring' ? 'Keyring' : 'Statue';
     document.getElementById('order-material').textContent = mat.name;
     document.getElementById('order-size').textContent = APP.selectedHeight + 'mm';
-    document.getElementById('order-color').textContent = APP.selectedColor?.name || 'Default';
-    document.getElementById('order-finish').textContent = APP.selectedFinish;
-    document.getElementById('order-price').textContent = '$' + APP.price.total.toFixed(2) + ' AUD';
-    document.getElementById('order-total').textContent = '$' + APP.price.total.toFixed(2) + ' AUD';
+
+    // Colour display (read-only)
+    const occ = document.getElementById('order-color-display');
+    occ.innerHTML = '';
+    const selDot = document.createElement('div');
+    selDot.className = 'color-dot selected';
+    if (APP.selectedColor.hex === 'rainbow') selDot.classList.add('rainbow');
+    else selDot.style.backgroundColor = APP.selectedColor.hex;
+    selDot.title = APP.selectedColor.name;
+    occ.appendChild(selDot);
+    const label = document.createElement('span');
+    label.textContent = APP.selectedColor.name;
+    label.style.cssText = 'font-size:14px; font-weight:500; margin-left:4px;';
+    occ.appendChild(label);
+
+    // Finish display (read-only)
+    const ofc = document.getElementById('order-finish-display');
+    ofc.innerHTML = '';
+    const chip = document.createElement('div');
+    chip.className = 'finish-chip selected';
+    chip.textContent = APP.selectedFinish;
+    ofc.appendChild(chip);
+
+    showScreen('order');
 }
 
-async function placeOrder() {
-    // For now: demo confirmation. Stripe integration later.
+function placeOrder() {
     showScreen('success');
     document.getElementById('success-order-id').textContent = 'PP-' + Date.now().toString(36).toUpperCase();
 }
 
 // ─── Init ───
-document.addEventListener('DOMContentLoaded', () => {
-    initUpload();
-    showScreen('upload');
-});
+showScreen('upload');
