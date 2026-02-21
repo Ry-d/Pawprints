@@ -221,10 +221,9 @@ function initCustomise() {
     initViewer('viewer-3d');
     loadModel(modelUrl);
 
-    // Set product toggle
-    document.querySelectorAll('.toggle-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.type === APP.productType);
-    });
+    // Set product label
+    document.getElementById('product-label').textContent = 
+        APP.productType === 'keyring' ? '🔑 Keyring' : '🗿 Statue';
 
     // Keyring: lock size
     const isKeyring = APP.productType === 'keyring';
@@ -255,31 +254,7 @@ function initCustomise() {
     bindCustomiseEvents();
 }
 
-function switchProduct(type) {
-    APP.productType = type;
-    document.querySelectorAll('.toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
-
-    const isKeyring = type === 'keyring';
-    const sizeCard = document.getElementById('size-card');
-
-    if (isKeyring) {
-        APP.selectedHeight = 50;
-        sizeCard.style.opacity = '0.5';
-        sizeCard.style.pointerEvents = 'none';
-        document.getElementById('size-slider').value = 50;
-        document.getElementById('size-badge').textContent = '50mm (fixed)';
-    } else {
-        APP.selectedHeight = 150;
-        sizeCard.style.opacity = '';
-        sizeCard.style.pointerEvents = '';
-        document.getElementById('size-slider').value = 150;
-        document.getElementById('size-badge').textContent = '150mm';
-    }
-
-    setModelScale(APP.selectedHeight);
-    updateSizeUI();
-    updatePrice();
-}
+// switchProduct removed — product type is locked from Screen 1
 
 function renderMaterials() {
     const grid = document.getElementById('material-grid');

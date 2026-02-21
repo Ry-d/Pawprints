@@ -244,31 +244,16 @@ body {
 
 .example-link:hover { color: var(--primary); }
 
-/* ─── Product Toggle (Screen 2) ─── */
-.product-toggle {
-    display: flex;
-    background: var(--border);
-    border-radius: 12px;
-    padding: 3px;
-    margin-bottom: 16px;
-}
-
-.toggle-btn {
-    flex: 1;
-    padding: 10px;
-    border: none;
-    border-radius: 10px;
-    font-size: 14px;
+/* ─── Product Label (Screen 2) ─── */
+.product-label {
+    text-align: center;
+    font-size: 15px;
     font-weight: 600;
-    cursor: pointer;
-    background: transparent;
     color: var(--text-muted);
-    transition: var(--transition);
-}
-
-.toggle-btn.active {
     background: var(--bg-card);
-    color: var(--text);
+    padding: 10px;
+    border-radius: 12px;
+    margin-bottom: 16px;
     box-shadow: var(--shadow);
 }
 
