@@ -140,7 +140,10 @@ async def generate_model(data: dict, request: Request):
 
     image_path = Path(data.get("image_path", ""))
     if not image_path.exists():
-        raise HTTPException(400, "Image not found")
+        # Try relative to upload dir
+        image_path = UPLOAD_DIR / image_path.name
+    if not image_path.exists():
+        raise HTTPException(400, f"Image not found: {image_path}")
 
     # Deduct from allowance
     ip = check["ip"]
@@ -148,10 +151,18 @@ async def generate_model(data: dict, request: Request):
     remaining = MAX_GENERATIONS_PER_DAY - _rate_limits[ip]["count"]
 
     # Step 1: Remove background
-    nobg_path = await remove_background(image_path)
+    try:
+        nobg_path = await remove_background(image_path)
+    except Exception as e:
+        print(f"Background removal error: {e}")
+        nobg_path = image_path
 
     # Step 2: Generate 3D model
-    task_id = await start_3d_generation(nobg_path)
+    try:
+        task_id = await start_3d_generation(nobg_path)
+    except Exception as e:
+        print(f"3D generation error: {e}")
+        task_id = None
 
     if task_id:
         return {"task_id": task_id, "status": "processing", "remaining": remaining}
