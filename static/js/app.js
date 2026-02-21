@@ -12,6 +12,8 @@ const APP = {
     selectedHeight: 150,
     price: null,
     activeUploadTarget: null,
+    email: null,
+    remaining: 3,
 };
 
 // ─── Navigation ───
@@ -98,8 +100,37 @@ document.getElementById('camera-input').addEventListener('change', e => {
 // ─── Processing ───
 function startProcessing() {
     if (!APP.uploadedFile) return;
+
+    // Check email
+    const email = prompt('Enter your email to get started:');
+    if (!email || !email.includes('@')) {
+        alert('A valid email is required to generate your 3D model.');
+        return;
+    }
+
+    APP.email = email;
     showProcessing('Uploading your photo...', 'This will take a moment');
-    uploadAndProcess(APP.uploadedFile);
+    registerAndProcess(email, APP.uploadedFile);
+}
+
+async function registerAndProcess(email, file) {
+    try {
+        const regRes = await fetch('/api/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+        });
+        if (!regRes.ok) {
+            const err = await regRes.json();
+            throw new Error(err.detail || 'Registration failed');
+        }
+        const regData = await regRes.json();
+        APP.remaining = regData.remaining;
+        await uploadAndProcess(file);
+    } catch (err) {
+        hideProcessing();
+        alert(err.message);
+    }
 }
 
 function showProcessing(title, sub) {
@@ -145,12 +176,18 @@ async function uploadAndProcess(file) {
             APP.modelUrl = genData.model_url;
         }
 
+        if (genData.remaining !== undefined) APP.remaining = genData.remaining;
+
         setProgress(100);
         hideProcessing();
         initCustomise();
         showScreen('customise');
     } catch (err) {
         hideProcessing();
+        if (err.message.includes('limit')) {
+            alert(err.message);
+            return;
+        }
         console.error(err);
         APP.modelUrl = '/static/model.glb';
         initCustomise();
@@ -214,6 +251,7 @@ function initCustomise() {
     renderOptions();
     updateSizeUI();
     updatePrice();
+    updateRerollUI();
     bindCustomiseEvents();
 }
 
@@ -428,6 +466,62 @@ function goToOrder() {
 function placeOrder() {
     showScreen('success');
     document.getElementById('success-order-id').textContent = 'PP-' + Date.now().toString(36).toUpperCase();
+}
+
+// ─── Reroll ───
+async function rerollModel() {
+    if (APP.remaining <= 0) {
+        alert('No regenerations left today. Try again tomorrow!');
+        return;
+    }
+    if (!APP.uploadedFile) return;
+
+    showProcessing('Regenerating model...', 'Trying a new version');
+    try {
+        const formData = new FormData();
+        formData.append('file', APP.uploadedFile);
+        const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+        const uploadData = await uploadRes.json();
+
+        setProgress(25);
+        const genRes = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_path: uploadData.path, product_type: APP.productType }),
+        });
+
+        if (!genRes.ok) {
+            const err = await genRes.json();
+            throw new Error(err.detail || 'Generation failed');
+        }
+
+        const genData = await genRes.json();
+        if (genData.remaining !== undefined) APP.remaining = genData.remaining;
+
+        if (genData.task_id) {
+            document.getElementById('processing-text').textContent = 'Creating 3D model...';
+            await pollModelStatus(genData.task_id);
+        } else if (genData.model_url) {
+            APP.modelUrl = genData.model_url;
+        }
+
+        setProgress(100);
+        hideProcessing();
+
+        // Reload model in viewer
+        loadModel(APP.modelUrl || '/static/model.glb');
+        updateRerollUI();
+    } catch (err) {
+        hideProcessing();
+        alert(err.message);
+    }
+}
+
+function updateRerollUI() {
+    const btn = document.getElementById('btn-reroll');
+    const count = document.getElementById('reroll-count');
+    count.textContent = APP.remaining;
+    btn.disabled = APP.remaining <= 0;
 }
 
 // ─── Init ───

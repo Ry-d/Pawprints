@@ -302,6 +302,24 @@ body {
 
 .viewer-reset:hover { background: rgba(255,255,255,0.25); }
 
+.viewer-reroll {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    background: rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.8);
+    border: none;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    z-index: 10;
+}
+
+.viewer-reroll:hover { background: rgba(255,255,255,0.25); }
+.viewer-reroll:disabled { opacity: 0.4; cursor: not-allowed; }
+
 .viewer-hint {
     position: absolute;
     bottom: 10px;

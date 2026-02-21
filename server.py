@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +28,11 @@ REMOVEBG_KEY = os.getenv("REMOVEBG_API_KEY", "")
 MESHY_KEY = os.getenv("MESHY_API_KEY", "")
 SHAPEWAYS_CLIENT_ID = os.getenv("SHAPEWAYS_CLIENT_ID", "")
 SHAPEWAYS_CLIENT_SECRET = os.getenv("SHAPEWAYS_CLIENT_SECRET", "")
+
+# ─── Anti-spam: rate limits + email gate ───
+# { ip: { "count": int, "date": "YYYY-MM-DD", "email": str|None } }
+_rate_limits: dict = {}
+MAX_GENERATIONS_PER_DAY = 3  # includes rerolls
 
 # Shapeways OAuth2 token cache
 _shapeways_token = {"access_token": None, "expires_at": 0}
@@ -83,15 +88,64 @@ async def upload_photo(file: UploadFile = File(...)):
     }
 
 
+@app.post("/api/register")
+async def register_email(data: dict, request: Request):
+    """Gate: collect email before allowing generation"""
+    email = (data.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(400, "Valid email required")
+
+    ip = request.client.host if request.client else "unknown"
+    today = time.strftime("%Y-%m-%d")
+
+    entry = _rate_limits.get(ip, {"count": 0, "date": today, "email": None})
+    if entry["date"] != today:
+        entry = {"count": 0, "date": today, "email": None}
+
+    entry["email"] = email
+    _rate_limits[ip] = entry
+
+    return {"ok": True, "remaining": MAX_GENERATIONS_PER_DAY - entry["count"]}
+
+
+def _check_rate_limit(request) -> dict:
+    """Check if IP has generations remaining today"""
+    ip = request.client.host if request.client else "unknown"
+    today = time.strftime("%Y-%m-%d")
+
+    entry = _rate_limits.get(ip, {"count": 0, "date": today, "email": None})
+    if entry["date"] != today:
+        entry = {"count": 0, "date": today, "email": None}
+        _rate_limits[ip] = entry
+
+    if not entry.get("email"):
+        return {"allowed": False, "reason": "Email required before generating"}
+    if entry["count"] >= MAX_GENERATIONS_PER_DAY:
+        return {"allowed": False, "reason": f"Daily limit reached ({MAX_GENERATIONS_PER_DAY} per day). Try again tomorrow!"}
+
+    return {"allowed": True, "remaining": MAX_GENERATIONS_PER_DAY - entry["count"], "ip": ip}
+
+
 @app.post("/api/generate")
-async def generate_model(data: dict):
+async def generate_model(data: dict, request: Request):
     """
     Pipeline: remove background → generate 3D model
-    Returns task_id for polling, or model_url if instant
+    Rate-limited: 3 per IP per day, email required
     """
+
+    # Check rate limit
+    check = _check_rate_limit(request)
+    if not check["allowed"]:
+        raise HTTPException(429, check["reason"])
+
     image_path = Path(data.get("image_path", ""))
     if not image_path.exists():
         raise HTTPException(400, "Image not found")
+
+    # Deduct from allowance
+    ip = check["ip"]
+    _rate_limits[ip]["count"] += 1
+    remaining = MAX_GENERATIONS_PER_DAY - _rate_limits[ip]["count"]
 
     # Step 1: Remove background
     nobg_path = await remove_background(image_path)
@@ -100,10 +154,10 @@ async def generate_model(data: dict):
     task_id = await start_3d_generation(nobg_path)
 
     if task_id:
-        return {"task_id": task_id, "status": "processing"}
+        return {"task_id": task_id, "status": "processing", "remaining": remaining}
     
     # Fallback: return demo model
-    return {"model_url": "/static/model.glb", "status": "demo"}
+    return {"model_url": "/static/model.glb", "status": "demo", "remaining": remaining}
 
 
 async def remove_background(image_path: Path) -> Path:
