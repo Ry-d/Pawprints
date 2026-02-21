@@ -14,6 +14,9 @@ const APP = {
     activeUploadTarget: null,
     email: null,
     remaining: 3,
+    processedImage: null,   // URL of Gemini-processed image
+    processedPath: null,    // server path for Meshy step
+    uploadPath: null,       // original upload server path
 };
 
 // ─── Navigation ───
@@ -22,7 +25,7 @@ function showScreen(screenId) {
     document.getElementById(`screen-${screenId}`).classList.add('active');
     APP.currentScreen = screenId;
 
-    const steps = ['upload', 'customise', 'order'];
+    const steps = ['upload', 'approve', 'customise', 'order'];
     const idx = steps.indexOf(screenId);
     document.querySelectorAll('.step-dot').forEach((d, i) => {
         d.className = 'step-dot';
@@ -30,14 +33,14 @@ function showScreen(screenId) {
         if (i === idx) d.classList.add('active');
     });
 
-    const labels = { upload: 'Step 1 of 3', customise: 'Step 2 of 3', order: 'Step 3 of 3', success: '✓ Complete' };
+    const labels = { upload: 'Step 1 of 4', approve: 'Step 2 of 4', customise: 'Step 3 of 4', order: 'Step 4 of 4', success: '✓ Complete' };
     document.getElementById('nav-step').textContent = labels[screenId] || '';
     document.getElementById('nav-back').style.display = idx > 0 ? '' : 'none';
     window.scrollTo(0, 0);
 }
 
 function goBack() {
-    const flow = ['upload', 'customise', 'order'];
+    const flow = ['upload', 'approve', 'customise', 'order'];
     const idx = flow.indexOf(APP.currentScreen);
     if (idx > 0) showScreen(flow[idx - 1]);
 }
@@ -126,7 +129,7 @@ async function registerAndProcess(email, file) {
         }
         const regData = await regRes.json();
         APP.remaining = regData.remaining;
-        await uploadAndProcess(file);
+        await uploadAndProcessImage(file);
     } catch (err) {
         hideProcessing();
         alert(err.message);
@@ -148,7 +151,8 @@ function setProgress(pct) {
     document.getElementById('progress-fill').style.width = pct + '%';
 }
 
-async function uploadAndProcess(file) {
+// Step 1: Upload + Gemini processing (cheap — rerollable)
+async function uploadAndProcessImage(file) {
     try {
         setProgress(10);
         const formData = new FormData();
@@ -156,27 +160,94 @@ async function uploadAndProcess(file) {
         const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
         if (!uploadRes.ok) throw new Error('Upload failed');
         const uploadData = await uploadRes.json();
+        APP.uploadPath = uploadData.path;
 
-        setProgress(25);
-        document.getElementById('processing-text').textContent = 'Removing background...';
+        setProgress(30);
+        document.getElementById('processing-text').textContent = APP.productType === 'keyring'
+            ? 'Creating keyring charm...' : 'Processing your photo...';
+        document.getElementById('processing-sub').textContent = 'This takes a few seconds';
 
-        const genRes = await fetch('/api/generate', {
+        const procRes = await fetch('/api/process-image', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ image_path: uploadData.path, product_type: APP.productType }),
         });
-        if (!genRes.ok) throw new Error('Generation failed');
+        if (!procRes.ok) {
+            const err = await procRes.json();
+            throw new Error(err.detail || 'Processing failed');
+        }
+        const procData = await procRes.json();
+        APP.processedImage = procData.processed_image;
+        APP.processedPath = procData.processed_path;
+
+        setProgress(100);
+        hideProcessing();
+
+        // Show approval screen
+        document.getElementById('approve-img').src = APP.processedImage;
+        document.getElementById('approve-remaining').textContent = APP.remaining;
+        showScreen('approve');
+
+    } catch (err) {
+        hideProcessing();
+        console.error(err);
+        alert('Processing failed: ' + err.message);
+    }
+}
+
+// Reroll Gemini (free — doesn't touch Meshy)
+async function rerollGemini() {
+    showProcessing(
+        APP.productType === 'keyring' ? 'Regenerating charm...' : 'Reprocessing photo...',
+        'Free reroll'
+    );
+
+    try {
+        setProgress(30);
+        const procRes = await fetch('/api/process-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_path: APP.uploadPath, product_type: APP.productType }),
+        });
+        if (!procRes.ok) throw new Error('Reroll failed');
+        const procData = await procRes.json();
+        APP.processedImage = procData.processed_image;
+        APP.processedPath = procData.processed_path;
+
+        setProgress(100);
+        hideProcessing();
+        document.getElementById('approve-img').src = APP.processedImage + '?t=' + Date.now();
+    } catch (err) {
+        hideProcessing();
+        alert('Reroll failed: ' + err.message);
+    }
+}
+
+// Step 2: User approved — now spend Meshy credits
+async function approveAndGenerate() {
+    showProcessing('Creating 3D model...', 'This usually takes 2-4 minutes');
+
+    try {
+        setProgress(10);
+        const genRes = await fetch('/api/generate-3d', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ processed_path: APP.processedPath }),
+        });
+
+        if (!genRes.ok) {
+            const err = await genRes.json();
+            throw new Error(err.detail || 'Generation failed');
+        }
+
         const genData = await genRes.json();
+        if (genData.remaining !== undefined) APP.remaining = genData.remaining;
 
         if (genData.task_id) {
-            document.getElementById('processing-text').textContent = 'Creating 3D model...';
-            document.getElementById('processing-sub').textContent = 'Usually 2-4 minutes';
             await pollModelStatus(genData.task_id);
         } else if (genData.model_url) {
             APP.modelUrl = genData.model_url;
         }
-
-        if (genData.remaining !== undefined) APP.remaining = genData.remaining;
 
         setProgress(100);
         hideProcessing();
@@ -443,26 +514,21 @@ function placeOrder() {
     document.getElementById('success-order-id').textContent = 'PP-' + Date.now().toString(36).toUpperCase();
 }
 
-// ─── Reroll ───
+// ─── Reroll 3D Model (costs Meshy credits) ───
 async function rerollModel() {
     if (APP.remaining <= 0) {
         alert('No regenerations left today. Try again tomorrow!');
         return;
     }
-    if (!APP.uploadedFile) return;
+    if (!APP.processedPath) return;
 
-    showProcessing('Regenerating model...', 'Trying a new version');
+    showProcessing('Regenerating 3D model...', 'Uses 1 daily credit');
     try {
-        const formData = new FormData();
-        formData.append('file', APP.uploadedFile);
-        const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
-        const uploadData = await uploadRes.json();
-
-        setProgress(25);
-        const genRes = await fetch('/api/generate', {
+        setProgress(10);
+        const genRes = await fetch('/api/generate-3d', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image_path: uploadData.path, product_type: APP.productType }),
+            body: JSON.stringify({ processed_path: APP.processedPath }),
         });
 
         if (!genRes.ok) {
@@ -482,8 +548,6 @@ async function rerollModel() {
 
         setProgress(100);
         hideProcessing();
-
-        // Reload model in viewer
         loadModel(APP.modelUrl || '/static/model.glb');
         updateRerollUI();
     } catch (err) {

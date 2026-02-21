@@ -28,6 +28,7 @@
     <div class="step-dot active"></div>
     <div class="step-dot"></div>
     <div class="step-dot"></div>
+    <div class="step-dot"></div>
 </div>
 
 <div class="container">
@@ -106,6 +107,32 @@
         <footer class="footer">
             🐾 PawPrints · Handcrafted in Australia
         </footer>
+    </div>
+
+    <!-- ══ SCREEN 1.5: Approve Processed Image ══ -->
+    <div class="screen" id="screen-approve">
+        <div class="hero">
+            <h1>Looking good?</h1>
+            <p>Check the processed image below. Happy? We'll generate your 3D model. Not quite right? Reroll for free.</p>
+        </div>
+
+        <div class="preview-container" id="approve-preview">
+            <img id="approve-img" alt="Processed pet image">
+        </div>
+
+        <button class="btn btn-accent btn-lg" id="btn-approve" onclick="approveAndGenerate()">
+            ✅ Looks great — Generate 3D Model
+        </button>
+
+        <button class="btn btn-secondary" id="btn-reroll-gemini" onclick="rerollGemini()" style="margin-top:10px;">
+            🔄 Try again (free)
+        </button>
+
+        <button class="btn btn-secondary" onclick="showScreen('upload')" style="margin-top:10px;">
+            ← Change Photo
+        </button>
+
+        <div class="secure-badge" style="margin-top:12px;">Rerolls are free · 3D generation uses 1 of <span id="approve-remaining">3</span> daily credits</div>
     </div>
 
     <!-- ══ SCREEN 2: Customise ══ -->

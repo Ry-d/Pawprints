@@ -127,39 +127,59 @@ def _check_rate_limit(request) -> dict:
     return {"allowed": True, "remaining": MAX_GENERATIONS_PER_DAY - entry["count"], "ip": ip}
 
 
-@app.post("/api/generate")
-async def generate_model(data: dict, request: Request):
+@app.post("/api/process-image")
+async def process_image(data: dict, request: Request):
     """
-    Pipeline: remove background → generate 3D model
-    Rate-limited: 3 per IP per day, email required
+    Step 1: Gemini processes the image (bg removal or keyring charm).
+    Cheap — user can reroll this multiple times before approving.
     """
-
-    # Check rate limit
     check = _check_rate_limit(request)
     if not check["allowed"]:
         raise HTTPException(429, check["reason"])
 
     image_path = Path(data.get("image_path", ""))
     if not image_path.exists():
-        # Try relative to upload dir
         image_path = UPLOAD_DIR / image_path.name
     if not image_path.exists():
         raise HTTPException(400, f"Image not found: {image_path}")
 
-    # Deduct from allowance
-    ip = check["ip"]
-    _rate_limits[ip]["count"] += 1
-    remaining = MAX_GENERATIONS_PER_DAY - _rate_limits[ip]["count"]
-
-    # Step 1: Process image via Gemini (bg removal for statue, charm gen for keyring)
     product_type = data.get("product_type", "statue")
+
     try:
         processed_path = await process_image_gemini(image_path, product_type)
     except Exception as e:
         print(f"Image processing error: {e}")
-        processed_path = image_path
+        raise HTTPException(500, "Image processing failed")
 
-    # Step 2: Generate 3D model from processed image
+    # Serve the processed image
+    return {
+        "processed_image": f"/uploads/{processed_path.name}",
+        "processed_path": str(processed_path),
+        "product_type": product_type,
+    }
+
+
+@app.post("/api/generate-3d")
+async def generate_3d(data: dict, request: Request):
+    """
+    Step 2: User approved the processed image — now spend the Meshy credits.
+    Rate-limited: counts against daily allowance.
+    """
+    check = _check_rate_limit(request)
+    if not check["allowed"]:
+        raise HTTPException(429, check["reason"])
+
+    processed_path = Path(data.get("processed_path", ""))
+    if not processed_path.exists():
+        processed_path = UPLOAD_DIR / processed_path.name
+    if not processed_path.exists():
+        raise HTTPException(400, "Processed image not found")
+
+    # Deduct from daily allowance (Meshy is the expensive call)
+    ip = check["ip"]
+    _rate_limits[ip]["count"] += 1
+    remaining = MAX_GENERATIONS_PER_DAY - _rate_limits[ip]["count"]
+
     try:
         task_id = await start_3d_generation(processed_path)
     except Exception as e:
@@ -168,8 +188,7 @@ async def generate_model(data: dict, request: Request):
 
     if task_id:
         return {"task_id": task_id, "status": "processing", "remaining": remaining}
-    
-    # Fallback: return demo model
+
     return {"model_url": "/static/model.glb", "status": "demo", "remaining": remaining}
 
 
@@ -337,6 +356,15 @@ async def model_status(task_id: str):
                 return {"status": "processing", "progress": progress}
 
         return {"status": "error"}
+
+
+# Serve uploaded/processed images
+@app.get("/uploads/{filename}")
+async def serve_upload(filename: str):
+    filepath = UPLOAD_DIR / filename
+    if not filepath.exists():
+        raise HTTPException(404, "File not found")
+    return FileResponse(filepath)
 
 
 # Serve generated models
