@@ -200,12 +200,9 @@ GEMINI_PROMPTS = {
         "on white, suitable for 3D model generation."
     ),
     "keyring": (
-        "Isolate the animal from this image and transform it into a highly detailed miniature "
-        "bronze keychain charm. Render it as a small sculptural relief — solid, metallic bronze "
-        "finish with fine surface detail. Include a small eyelet loop at the top for attaching "
-        "to a keyring — do NOT include the chain or ring itself, just the charm with the eyelet. "
-        "Place on a pure white background. The output should look like a product photo of a "
-        "premium bronze pet charm."
+        "Isolate the animal from this image, turn it into a detailed bronze keychain that looks "
+        "identical to the pet, dont include the chain, just the eyelet that the keyring links "
+        "onto, the eyelet should be in full view. Place on a pure white background."
     ),
 }
 
