@@ -17,6 +17,8 @@ const APP = {
     processedImage: null,   // URL of Gemini-processed image
     processedPath: null,    // server path for Meshy step
     uploadPath: null,       // original upload server path
+    bankedImage: null,      // banked Gemini image URL
+    bankedPath: null,       // banked server path
 };
 
 // ─── Navigation ───
@@ -183,7 +185,10 @@ async function uploadAndProcessImage(file) {
         setProgress(100);
         hideProcessing();
 
-        // Show approval screen
+        // Reset banked state and show approval screen
+        APP.bankedImage = null;
+        APP.bankedPath = null;
+        document.getElementById('banked-section').style.display = 'none';
         document.getElementById('approve-img').src = APP.processedImage;
         document.getElementById('approve-remaining').textContent = APP.remaining;
         showScreen('approve');
@@ -193,6 +198,32 @@ async function uploadAndProcessImage(file) {
         console.error(err);
         alert('Processing failed: ' + err.message);
     }
+}
+
+// Bank current image
+function bankCurrent() {
+    if (!APP.processedImage) return;
+    APP.bankedImage = APP.processedImage;
+    APP.bankedPath = APP.processedPath;
+
+    document.getElementById('banked-img').src = APP.bankedImage;
+    document.getElementById('banked-section').style.display = 'block';
+}
+
+// Swap banked image to current (and use it for generation)
+function useBanked() {
+    if (!APP.bankedImage) return;
+    // Swap current and banked
+    const tempImg = APP.processedImage;
+    const tempPath = APP.processedPath;
+
+    APP.processedImage = APP.bankedImage;
+    APP.processedPath = APP.bankedPath;
+    APP.bankedImage = tempImg;
+    APP.bankedPath = tempPath;
+
+    document.getElementById('approve-img').src = APP.processedImage;
+    document.getElementById('banked-img').src = APP.bankedImage;
 }
 
 // Reroll Gemini (free — doesn't touch Meshy)

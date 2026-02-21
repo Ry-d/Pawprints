@@ -244,6 +244,43 @@ body {
 
 .example-link:hover { color: var(--primary); }
 
+/* ─── Approve Screen ─── */
+.approve-section {
+    margin-bottom: 16px;
+}
+
+.approve-label {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text);
+}
+
+.approve-label .banked-hint {
+    font-weight: 400;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.approve-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.preview-container.banked {
+    border: 2px solid var(--primary);
+    position: relative;
+}
+
+.preview-container.banked::after {
+    content: '⭐';
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    font-size: 20px;
+}
+
 /* ─── Product Label (Screen 2) ─── */
 .product-label {
     text-align: center;
