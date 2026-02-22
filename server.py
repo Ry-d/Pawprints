@@ -148,9 +148,9 @@ async def process_image(data: dict, request: Request):
     Step 1: Gemini processes the image (bg removal or keyring charm).
     Cheap — user can reroll this multiple times before approving.
     """
-    check = _check_rate_limit(request)
-    if not check["allowed"]:
-        raise HTTPException(429, check["reason"])
+    # check = _check_rate_limit(request)
+    # if not check["allowed"]:
+        # raise HTTPException(429, check["reason"])
 
     image_path = Path(data.get("image_path", ""))
     if not image_path.exists():
@@ -180,9 +180,9 @@ async def generate_3d(data: dict, request: Request):
     Step 2: User approved the processed image — now spend the Meshy credits.
     Rate-limited: counts against daily allowance.
     """
-    check = _check_rate_limit(request)
-    if not check["allowed"]:
-        raise HTTPException(429, check["reason"])
+    # check = _check_rate_limit(request)
+    # if not check["allowed"]:
+        # raise HTTPException(429, check["reason"])
 
     processed_path = Path(data.get("processed_path", ""))
     if not processed_path.exists():
@@ -190,10 +190,8 @@ async def generate_3d(data: dict, request: Request):
     if not processed_path.exists():
         raise HTTPException(400, "Processed image not found")
 
-    # Deduct from daily allowance (Meshy is the expensive call)
-    ip = check["ip"]
-    _rate_limits[ip]["count"] += 1
-    remaining = MAX_GENERATIONS_PER_DAY - _rate_limits[ip]["count"]
+    # Rate limiting paused for MVP testing
+    remaining = 999
 
     try:
         task_id = await start_3d_generation(processed_path)
