@@ -106,16 +106,12 @@ document.getElementById('camera-input').addEventListener('change', e => {
 function startProcessing() {
     if (!APP.uploadedFile) return;
 
-    // Check email
-    const email = prompt('Enter your email to get started:');
-    if (!email || !email.includes('@')) {
-        alert('A valid email is required to generate your 3D model.');
-        return;
-    }
-
-    APP.email = email;
-    showProcessing('Uploading your photo...', 'This will take a moment');
-    registerAndProcess(email, APP.uploadedFile);
+    // Require sign-in
+    requireAuth(() => {
+        APP.email = currentUser.email;
+        showProcessing('Uploading your photo...', 'This will take a moment');
+        registerAndProcess(currentUser.email, APP.uploadedFile);
+    });
 }
 
 async function registerAndProcess(email, file) {

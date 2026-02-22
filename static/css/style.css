@@ -642,6 +642,113 @@ input[type="range"]::-webkit-slider-thumb {
     color: var(--text-light);
 }
 
+/* ─── Auth ─── */
+.nav-right { display: flex; align-items: center; gap: 10px; }
+
+.btn-sign-in {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.nav-avatar {
+    width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--primary);
+    background: var(--bg); cursor: pointer; padding: 0; overflow: hidden;
+}
+.nav-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.auth-modal {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 3000; align-items: center; justify-content: center;
+}
+.auth-modal.active { display: flex; }
+
+.auth-card {
+    background: var(--bg-card); border-radius: var(--radius); padding: 32px 24px;
+    max-width: 380px; width: 90%; text-align: center; position: relative;
+}
+.auth-close {
+    position: absolute; top: 12px; right: 12px; background: none; border: none;
+    font-size: 18px; cursor: pointer; color: var(--text-muted); padding: 4px 8px;
+}
+.auth-logo { font-size: 40px; margin-bottom: 12px; }
+.auth-card h2 { font-size: 20px; margin-bottom: 6px; }
+.auth-card > p { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+
+.btn-google {
+    background: white; color: var(--text); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 12px; border-radius: var(--radius-sm); font-size: 15px; font-weight: 600;
+    cursor: pointer; width: 100%; transition: var(--transition);
+}
+.btn-google:hover { background: #f8f8f8; border-color: #ccc; }
+
+.auth-divider {
+    margin: 16px 0; display: flex; align-items: center; gap: 12px;
+    color: var(--text-light); font-size: 12px;
+}
+.auth-divider::before, .auth-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+.auth-terms { font-size: 11px; color: var(--text-light); margin-top: 16px; line-height: 1.4; }
+
+/* ─── Portal ─── */
+.portal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    z-index: 2500; justify-content: flex-end;
+}
+.portal-overlay.active { display: flex; }
+
+.portal-panel {
+    background: var(--bg); width: 90%; max-width: 420px; height: 100%;
+    overflow-y: auto; padding: 20px; animation: slideIn 0.3s ease;
+}
+@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+.portal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.portal-header h2 { font-size: 20px; }
+
+.portal-user { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.portal-avatar {
+    width: 48px; height: 48px; border-radius: 50%; background: var(--border);
+    display: flex; align-items: center; justify-content: center; font-size: 24px; overflow: hidden;
+}
+.portal-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.portal-name { font-weight: 600; font-size: 15px; }
+.portal-email { font-size: 13px; color: var(--text-muted); }
+
+.credits-display { display: flex; align-items: center; gap: 10px; }
+.credits-count { font-size: 28px; font-weight: 800; color: var(--primary); }
+.credits-label { font-size: 13px; color: var(--text-muted); }
+
+.form-group { margin-bottom: 12px; }
+.form-group label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; font-weight: 500; }
+.form-group input, .form-group select {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 14px; background: var(--bg-card); color: var(--text);
+}
+.form-row { display: flex; gap: 10px; }
+.form-row .form-group { flex: 1; }
+
+.checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.checkbox-label input { width: auto; }
+
+.order-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid var(--border);
+}
+.order-id { font-weight: 600; font-size: 13px; }
+.order-meta { font-size: 12px; color: var(--text-muted); }
+.order-price { font-weight: 600; font-size: 14px; text-align: right; }
+.order-status { font-size: 12px; color: var(--accent); text-align: right; }
+.empty-state { text-align: center; color: var(--text-light); font-size: 13px; padding: 20px; }
+
 /* ─── Responsive ─── */
 @media (min-width: 768px) {
     .container { max-width: 520px; }

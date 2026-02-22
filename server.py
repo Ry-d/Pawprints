@@ -390,6 +390,23 @@ async def model_status(task_id: str):
         return {"status": "error"}
 
 
+# ─── User Profiles (in-memory for MVP, move to DB later) ───
+_user_profiles: dict = {}
+
+@app.post("/api/profile")
+async def save_profile(data: dict):
+    uid = data.get("uid")
+    if not uid:
+        raise HTTPException(400, "uid required")
+    _user_profiles[uid] = {k: v for k, v in data.items() if k != "uid"}
+    return {"ok": True}
+
+@app.get("/api/profile/{uid}")
+async def get_profile(uid: str):
+    profile = _user_profiles.get(uid)
+    return {"profile": profile}
+
+
 # Serve uploaded/processed images
 @app.get("/uploads/{filename}")
 async def serve_upload(filename: str):
