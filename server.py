@@ -26,7 +26,8 @@ MODEL_DIR.mkdir(exist_ok=True)
 
 REMOVEBG_KEY = os.getenv("REMOVEBG_API_KEY", "")  # legacy fallback
 MESHY_KEY = os.getenv("MESHY_API_KEY", "")
-GEMINI_KEY = os.getenv("NANOBANANA_API_KEY", "")
+GEMINI_KEY = os.getenv("NANOBANANA_API_KEY", "")  # legacy
+XAI_KEY = os.getenv("XAI_API_KEY", "")
 SHAPEWAYS_CLIENT_ID = os.getenv("SHAPEWAYS_CLIENT_ID", "")
 SHAPEWAYS_CLIENT_SECRET = os.getenv("SHAPEWAYS_CLIENT_SECRET", "")
 
@@ -146,7 +147,7 @@ async def process_image(data: dict, request: Request):
     product_type = data.get("product_type", "statue")
 
     try:
-        processed_path = await process_image_gemini(image_path, product_type)
+        processed_path = await process_image_grok(image_path, product_type)
     except Exception as e:
         print(f"Image processing error: {e}")
         raise HTTPException(500, "Image processing failed")
@@ -207,81 +208,112 @@ GEMINI_PROMPTS = {
 }
 
 
-async def process_image_gemini(image_path: Path, product_type: str) -> Path:
-    """Process pet photo via Gemini — background removal (statue) or keyring charm generation"""
-    if not GEMINI_KEY:
-        # Fallback to remove.bg for statue, or return original
+async def process_image_grok(image_path: Path, product_type: str) -> Path:
+    """Process pet photo via Grok (xAI) — background removal (statue) or keyring charm generation"""
+    if not XAI_KEY:
+        # Fallback to Gemini, then remove.bg
+        if GEMINI_KEY:
+            return await process_image_gemini_legacy(image_path, product_type)
         if product_type == "statue" and REMOVEBG_KEY:
             return await remove_background_legacy(image_path)
         return image_path
 
     import base64
     image_data = base64.b64encode(image_path.read_bytes()).decode()
-
-    # Detect mime type
     ext = image_path.suffix.lower()
-    mime = {"jpg": "image/jpeg", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}.get(ext, "image/jpeg")
+    mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}.get(ext, "image/jpeg")
 
     prompt = GEMINI_PROMPTS.get(product_type, GEMINI_PROMPTS["statue"])
     out_path = UPLOAD_DIR / f"{image_path.stem}_{product_type}_processed.png"
+    data_uri = f"data:{mime};base64,{image_data}"
+
+    print(f"Grok image edit: {product_type} — sending to xAI API")
 
     async with httpx.AsyncClient(timeout=120) as client:
-        # Try multiple model names in order of likelihood
-        models = [
-            "gemini-2.5-flash-image",
-            "gemini-2.0-flash",
-        ]
-        resp = None
-        for model_name in models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_KEY}"
-            print(f"Trying Gemini model: {model_name}")
-            resp = await client.post(
-                url,
-                json={
-                    "contents": [{
-                        "parts": [
-                            {"text": prompt},
-                            {"inline_data": {"mime_type": mime, "data": image_data}},
-                        ]
-                    }],
-                    "generationConfig": {
-                        "responseModalities": ["IMAGE", "TEXT"],
-                    },
+        resp = await client.post(
+            "https://api.x.ai/v1/images/edits",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {XAI_KEY}",
+            },
+            json={
+                "model": "grok-imagine-image",
+                "prompt": prompt,
+                "image": {
+                    "url": data_uri,
+                    "type": "image_url",
                 },
-            )
-            if resp.status_code == 200:
-                print(f"Gemini model {model_name} succeeded")
-                break
-            else:
-                print(f"Gemini model {model_name} failed: {resp.status_code} - {resp.text[:300]}")
-        
-        if resp is None:
-            print("No Gemini models available")
-            return image_path
+                "response_format": "b64_json",
+            },
+        )
 
         if resp.status_code == 200:
             data = resp.json()
-            # Extract image from response
-            candidates = data.get("candidates", [])
-            for candidate in candidates:
-                parts = candidate.get("content", {}).get("parts", [])
-                for part in parts:
-                    if "inlineData" in part:
-                        img_bytes = base64.b64decode(part["inlineData"]["data"])
-                        out_path.write_bytes(img_bytes)
-                        print(f"Gemini processed ({product_type}): {out_path.name}")
+            images = data.get("data", [])
+            if images:
+                # Get base64 image
+                b64 = images[0].get("b64_json")
+                if b64:
+                    img_bytes = base64.b64decode(b64)
+                    out_path.write_bytes(img_bytes)
+                    print(f"Grok processed ({product_type}): {out_path.name} ({len(img_bytes) / 1024:.0f}KB)")
+                    return out_path
+
+                # Try URL fallback
+                img_url = images[0].get("url")
+                if img_url:
+                    img_resp = await client.get(img_url)
+                    if img_resp.status_code == 200:
+                        out_path.write_bytes(img_resp.content)
+                        print(f"Grok processed via URL ({product_type}): {out_path.name}")
                         return out_path
 
-            print(f"Gemini: no image in response. Full response: {data}")
+            print(f"Grok: no image in response. Keys: {list(data.keys())}")
             return image_path
         else:
-            print(f"Gemini final error: {resp.status_code} - {resp.text[:500]}")
-            # Fallback
+            print(f"Grok error: {resp.status_code} - {resp.text[:500]}")
+            # Fallback chain
+            if GEMINI_KEY:
+                print("Falling back to Gemini")
+                return await process_image_gemini_legacy(image_path, product_type)
             if product_type == "statue" and REMOVEBG_KEY:
                 print("Falling back to remove.bg")
                 return await remove_background_legacy(image_path)
-            print("No fallback available, returning original image")
             return image_path
+
+
+async def process_image_gemini_legacy(image_path: Path, product_type: str) -> Path:
+    """Legacy Gemini fallback"""
+    if not GEMINI_KEY:
+        return image_path
+
+    import base64
+    image_data = base64.b64encode(image_path.read_bytes()).decode()
+    ext = image_path.suffix.lower()
+    mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}.get(ext, "image/jpeg")
+    prompt = GEMINI_PROMPTS.get(product_type, GEMINI_PROMPTS["statue"])
+    out_path = UPLOAD_DIR / f"{image_path.stem}_{product_type}_gemini.png"
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={GEMINI_KEY}",
+            json={
+                "contents": [{"parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": mime, "data": image_data}},
+                ]}],
+                "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
+            },
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            for candidate in data.get("candidates", []):
+                for part in candidate.get("content", {}).get("parts", []):
+                    if "inlineData" in part:
+                        img_bytes = base64.b64decode(part["inlineData"]["data"])
+                        out_path.write_bytes(img_bytes)
+                        return out_path
+    return image_path
 
 
 async def remove_background_legacy(image_path: Path) -> Path:
