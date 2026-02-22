@@ -200,10 +200,9 @@ GEMINI_PROMPTS = {
         "on white, suitable for 3D model generation."
     ),
     "keyring": (
-        "Remove the background completely and replace it with pure white. Isolate the animal "
-        "from this image, turn it into a detailed bronze keychain that looks identical to the "
-        "pet, dont include the chain, just the eyelet that the keyring links onto, the eyelet "
-        "should be in full view. Output on a pure white background with no shadows or artifacts."
+        "Isolate the animal from the image and make the background white, turn it into a "
+        "detailed bronze keychain that looks identical to the pet, don't include the chain "
+        "or ring, just the fixed eyelet, the eyelet should be in full view."
     ),
 }
 
