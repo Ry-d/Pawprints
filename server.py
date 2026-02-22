@@ -65,7 +65,18 @@ async def health():
         "status": "ok",
         "removebg": bool(REMOVEBG_KEY),
         "meshy": bool(MESHY_KEY),
+        "xai": bool(XAI_KEY),
+        "gemini": bool(GEMINI_KEY),
+        "shapeways": bool(SHAPEWAYS_CLIENT_ID and SHAPEWAYS_CLIENT_SECRET),
     }
+
+@app.get("/api/debug/shapeways-token")
+async def debug_shapeways_token():
+    """Debug: test Shapeways OAuth2 token"""
+    token = await get_shapeways_token()
+    if token:
+        return {"ok": True, "token_prefix": token[:10] + "..."}
+    return {"ok": False, "error": "Failed to get token"}
 
 
 @app.post("/api/upload")

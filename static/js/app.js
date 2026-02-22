@@ -284,18 +284,15 @@ async function approveAndGenerate() {
             APP.modelUrl = genData.model_url;
         }
 
-        setProgress(95);
-        // Fetch real Shapeways quote
-        if (APP.meshyTaskId) {
-            document.getElementById('processing-text').textContent = 'Getting price quote...';
-            document.getElementById('processing-sub').textContent = 'Almost done';
-            await fetchShapewaysQuote(APP.meshyTaskId);
-        }
-
         setProgress(100);
         hideProcessing();
         initCustomise();
         showScreen('customise');
+
+        // Fetch Shapeways quote in background after screen loads
+        if (APP.meshyTaskId) {
+            fetchShapewaysQuoteWithRetry(APP.meshyTaskId);
+        }
     } catch (err) {
         hideProcessing();
         if (err.message.includes('limit')) {
@@ -385,37 +382,53 @@ function initCustomise() {
 }
 
 // ─── Shapeways Real Quotes ───
-async function fetchShapewaysQuote(taskId) {
-    try {
-        // Give Shapeways a moment to process the uploaded model
-        await new Promise(r => setTimeout(r, 3000));
+APP.quoteLoaded = false;
 
-        const res = await fetch(`/api/shapeways-quote/${taskId}`);
-        const data = await res.json();
+async function fetchShapewaysQuoteWithRetry(taskId) {
+    APP.quoteLoaded = false;
+    updatePrice(); // show "Retrieving quote..." state
 
-        if (data.source === 'shapeways' && data.all_materials) {
-            APP.shapewaysQuotes = data.all_materials;
-            APP.shapewaysDimensions = data.dimensions;
+    // Retry up to 8 times (Shapeways may need time to process the upload)
+    for (let attempt = 0; attempt < 8; attempt++) {
+        await new Promise(r => setTimeout(r, 5000)); // wait 5s between attempts
+        console.log(`Shapeways quote attempt ${attempt + 1}...`);
 
-            // Map Shapeways prices to our materials
-            for (const [matId, quote] of Object.entries(data.all_materials)) {
-                const name = quote.name.toLowerCase();
-                if (name.includes('bronze')) {
-                    APP._shapewaysBronzeCost = quote.shapeways_cost;
+        try {
+            const res = await fetch(`/api/shapeways-quote/${taskId}`);
+            const data = await res.json();
+
+            if (data.source === 'shapeways' && data.all_materials && Object.keys(data.all_materials).length > 0) {
+                APP.shapewaysQuotes = data.all_materials;
+                APP.shapewaysDimensions = data.dimensions;
+
+                for (const [matId, quote] of Object.entries(data.all_materials)) {
+                    const name = quote.name.toLowerCase();
+                    if (name.includes('bronze')) {
+                        APP._shapewaysBronzeCost = quote.shapeways_cost;
+                    }
                 }
-                // Can map other materials too as needed
+
+                if (data.bronze_raw) APP._shapewaysBronzeCost = data.bronze_raw.shapeways_cost;
+                if (data.bronze) APP._shapewaysBronzeCost = data.bronze.shapeways_cost;
+
+                APP.quoteLoaded = true;
+                console.log('Shapeways quotes loaded:', data.all_materials);
+                updatePrice();
+                return;
             }
 
-            // Update bronze/keyring cost
-            if (data.bronze_raw) APP._shapewaysBronzeCost = data.bronze_raw.shapeways_cost;
-            if (data.bronze) APP._shapewaysBronzeCost = data.bronze.shapeways_cost;
-
-            console.log('Shapeways quotes loaded:', data.all_materials);
-            console.log('Bronze cost:', APP._shapewaysBronzeCost);
+            if (data.error) {
+                console.log(`Shapeways: ${data.error}, retrying...`);
+            }
+        } catch (e) {
+            console.error('Shapeways quote error:', e);
         }
-    } catch (e) {
-        console.error('Shapeways quote error:', e);
     }
+
+    // Gave up — use estimates
+    console.log('Shapeways quote unavailable, using estimates');
+    APP.quoteLoaded = true; // stop showing "retrieving"
+    updatePrice();
 }
 
 // switchProduct removed — product type is locked from Screen 1
@@ -594,9 +607,18 @@ function updatePrice() {
     if (!result) return;
     APP.price = result;
 
+    const orderBtn = document.getElementById('btn-order');
+
+    if (!APP.quoteLoaded) {
+        orderBtn.textContent = '⏳ Retrieving quote...';
+        orderBtn.disabled = true;
+        return;
+    }
+
     const priceStr = '$' + result.total.toFixed(2) + ' AUD';
     const source = result.source === 'shapeways' ? '' : ' (est.)';
-    document.getElementById('btn-order').textContent = `Continue · ${priceStr}${source}`;
+    orderBtn.textContent = `Continue · ${priceStr}${source}`;
+    orderBtn.disabled = false;
 }
 
 function resetView() {
