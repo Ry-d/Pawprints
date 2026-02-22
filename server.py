@@ -35,6 +35,7 @@ SHAPEWAYS_CLIENT_SECRET = os.getenv("SHAPEWAYS_CLIENT_SECRET", "")
 # { ip: { "count": int, "date": "YYYY-MM-DD", "email": str|None } }
 _rate_limits: dict = {}
 MAX_GENERATIONS_PER_DAY = 3  # includes rerolls
+UNLIMITED_EMAILS = {"ry@douphraite.com"}  # bypass rate limit
 
 # Shapeways OAuth2 token cache
 _shapeways_token = {"access_token": None, "expires_at": 0}
@@ -133,6 +134,8 @@ def _check_rate_limit(request) -> dict:
 
     if not entry.get("email"):
         return {"allowed": False, "reason": "Email required before generating"}
+    if entry.get("email") in UNLIMITED_EMAILS:
+        return {"allowed": True, "remaining": 999, "ip": ip}
     if entry["count"] >= MAX_GENERATIONS_PER_DAY:
         return {"allowed": False, "reason": f"Daily limit reached ({MAX_GENERATIONS_PER_DAY} per day). Try again tomorrow!"}
 
