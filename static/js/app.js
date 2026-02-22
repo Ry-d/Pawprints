@@ -300,11 +300,16 @@ async function approveAndGenerate() {
 
         setProgress(100);
         hideProcessing();
+
+        if (APP.productType === 'keyring') {
+            APP.quoteLoaded = true; // fixed price, no need to wait
+        }
+
         initCustomise();
         showScreen('customise');
 
-        // Fetch Shapeways quote in background after screen loads
-        if (APP.meshyTaskId) {
+        // Fetch Shapeways quote in background for statues
+        if (APP.meshyTaskId && APP.productType !== 'keyring') {
             fetchShapewaysQuoteWithRetry(APP.meshyTaskId);
         }
     } catch (err) {
@@ -420,8 +425,10 @@ async function fetchShapewaysQuoteWithRetry(taskId) {
 
                 for (const [matId, quote] of Object.entries(data.all_materials)) {
                     const name = quote.name.toLowerCase();
+                    console.log(`  Material ${matId}: ${quote.name} = $${quote.shapeways_cost}`);
                     if (name.includes('bronze')) {
                         APP._shapewaysBronzeCost = quote.shapeways_cost;
+                        console.log(`  → Matched bronze: $${quote.shapeways_cost}`);
                     }
                 }
 
@@ -602,8 +609,8 @@ function updatePrice() {
     let result;
 
     if (APP.productType === 'keyring') {
-        // Keyring: use real Shapeways bronze cost if available
-        result = calculateKeyringPrice(APP._shapewaysBronzeCost || null);
+        // Keyring: fixed pricing ($240 + $80)
+        result = calculateKeyringPrice();
     } else {
         // Statue: check for real Shapeways quote for selected material
         const swQuotes = APP.shapewaysQuotes || {};

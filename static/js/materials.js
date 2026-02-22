@@ -103,23 +103,19 @@ const MARGIN_TIERS = {
 
 const MIN_PROFIT = 20.00; // floor: at least $20 profit per order
 
-const KEYRING_MARGIN = 0.55; // 55% margin on keyrings (bronze)
+// Keyring: fixed pricing — bronze 50mm
+// Shapeways ~$240 + our $80 margin = $320 retail
+const KEYRING_BASE_COST = 240;
+const KEYRING_MARGIN_FIXED = 80;
 
-function calculateKeyringPrice(shapewaysCost) {
-    const baseCost = shapewaysCost || null;
-    if (!baseCost) {
-        // No quote yet
-        return { total: 0, baseCost: 0, markup: 0, profit: 0, isKeyring: true, pending: true };
-    }
-    const markup = baseCost * KEYRING_MARGIN;
-    const total = baseCost + markup;
+function calculateKeyringPrice() {
     return {
-        baseCost: baseCost,
-        markup: markup,
-        profit: markup - API_COST_PER_ORDER,
-        total: total,
+        baseCost: KEYRING_BASE_COST,
+        markup: KEYRING_MARGIN_FIXED,
+        profit: KEYRING_MARGIN_FIXED - API_COST_PER_ORDER,
+        total: KEYRING_BASE_COST + KEYRING_MARGIN_FIXED,
         isKeyring: true,
-        source: 'shapeways',
+        source: 'fixed',
     };
 }
 
