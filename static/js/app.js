@@ -402,9 +402,12 @@ async function fetchShapewaysQuoteWithRetry(taskId) {
     APP.quoteLoaded = false;
     updatePrice(); // show "Retrieving quote..." state
 
-    // Retry up to 8 times (Shapeways may need time to process the upload)
-    for (let attempt = 0; attempt < 8; attempt++) {
-        await new Promise(r => setTimeout(r, 5000)); // wait 5s between attempts
+    // First wait longer — Shapeways needs time to process the model
+    await new Promise(r => setTimeout(r, 10000));
+
+    // Then retry up to 10 times
+    for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise(r => setTimeout(r, 5000));
         console.log(`Shapeways quote attempt ${attempt + 1}...`);
 
         try {

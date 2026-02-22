@@ -509,6 +509,7 @@ async def get_shapeways_quote(task_id: str):
 
     # Find the Shapeways model ID
     model_id = _shapeways_models.get(task_id)
+    print(f"Shapeways quote lookup: task={task_id}, cached_models={list(_shapeways_models.keys())}, model_id={model_id}")
     if not model_id:
         return {"source": "estimated", "error": "Model not yet uploaded to Shapeways"}
 
@@ -561,7 +562,7 @@ async def get_shapeways_quote(task_id: str):
                 elif "bronze" in lower_name:
                     result["bronze"] = q
 
-            print(f"Shapeways quote for model {model_id}: {len(quotes)} materials available")
+            print(f"Shapeways quote for model {model_id}: {len(quotes)} materials, bronze={result.get('bronze') or result.get('bronze_raw')}")
             return result
 
         else:
