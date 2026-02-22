@@ -61,18 +61,33 @@ const MATERIALS = {
         swatchColor: '#CD7F32',
         swatchStyle: 'background: linear-gradient(135deg, #CD7F32, #A0652A)',
         minSize: 20,
-        maxSize: 150,   // mm — most limited
+        maxSize: 150,
         minWall: 3.0,
         basePricePerCm3: 6.00,
         setupFee: 25.00,
         colors: [
-            { name: 'Raw Bronze',     hex: '#CD7F32' },
-            { name: 'Polished Gold',  hex: '#FFD700' },
-            { name: 'Antique Patina', hex: '#4A6741' },
-            { name: 'Brushed Nickel', hex: '#C0C0C0' },
+            { name: 'Bronze', hex: '#CD7F32' },
         ],
-        finishes: ['Raw', 'Polished', 'Patina', 'Gold Plated'],
-        finishMultiplier: { 'Raw': 1.0, 'Polished': 1.3, 'Patina': 1.2, 'Gold Plated': 1.8 },
+        finishes: ['Raw', 'Satin', 'Polished', 'Patina'],
+        finishMultiplier: { 'Raw': 1.0, 'Satin': 1.15, 'Polished': 1.3, 'Patina': 1.2 },
+        finishInfo: {
+            'Raw': {
+                desc: 'Natural cast finish with subtle texture. Warm, authentic look.',
+                color: '#B87333',
+            },
+            'Satin': {
+                desc: 'Smooth, brushed surface with a soft sheen. Elegant and understated.',
+                color: '#D4956A',
+            },
+            'Polished': {
+                desc: 'Mirror-like high shine. Bright, reflective, premium feel.',
+                color: '#E8B86D',
+            },
+            'Patina': {
+                desc: 'Aged green-brown finish. Classic antique bronze character.',
+                color: '#4A6741',
+            },
+        },
     }
 };
 
@@ -88,28 +103,23 @@ const MARGIN_TIERS = {
 
 const MIN_PROFIT = 20.00; // floor: at least $20 profit per order
 
-// ─── Keyring: fixed pricing tiers (bronze only, 50mm) ───
-const KEYRING_TIERS = {
-    // Shapeways cost → our retail price
-    // cost ≤ $85  → $149
-    // $85–$110    → $169
-    // cost > $110 → $189
-    getPrice(shapewaysCost) {
-        if (shapewaysCost <= 85) return 149;
-        if (shapewaysCost <= 110) return 169;
-        return 189;
-    }
-};
+const KEYRING_MARGIN = 0.55; // 55% margin on keyrings (bronze)
 
 function calculateKeyringPrice(shapewaysCost) {
-    const retail = KEYRING_TIERS.getPrice(shapewaysCost || 0);
-    const baseCost = shapewaysCost || 60; // estimate if no Shapeways quote yet
+    const baseCost = shapewaysCost || null;
+    if (!baseCost) {
+        // No quote yet
+        return { total: 0, baseCost: 0, markup: 0, profit: 0, isKeyring: true, pending: true };
+    }
+    const markup = baseCost * KEYRING_MARGIN;
+    const total = baseCost + markup;
     return {
         baseCost: baseCost,
-        retail: retail,
-        profit: retail - baseCost - API_COST_PER_ORDER,
-        total: retail,
+        markup: markup,
+        profit: markup - API_COST_PER_ORDER,
+        total: total,
         isKeyring: true,
+        source: 'shapeways',
     };
 }
 

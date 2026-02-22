@@ -517,18 +517,43 @@ function renderOptions() {
     // Finishes
     const fc = document.getElementById('finish-options');
     fc.innerHTML = '';
-    mat.finishes.forEach((finish, i) => {
-        const chip = document.createElement('div');
-        chip.className = `finish-chip ${i === 0 ? 'selected' : ''}`;
-        chip.textContent = finish;
-        chip.addEventListener('click', () => {
-            APP.selectedFinish = finish;
-            fc.querySelectorAll('.finish-chip').forEach(c => c.classList.remove('selected'));
-            chip.classList.add('selected');
-            updatePrice();
+
+    if (mat.finishInfo) {
+        // Rich finish cards (bronze)
+        mat.finishes.forEach((finish, i) => {
+            const info = mat.finishInfo[finish] || {};
+            const card = document.createElement('div');
+            card.className = `finish-card ${i === 0 ? 'selected' : ''}`;
+            card.innerHTML = `
+                <div class="finish-card-swatch" style="background:${info.color || '#CD7F32'}"></div>
+                <div class="finish-card-info">
+                    <div class="finish-card-name">${finish}</div>
+                    <div class="finish-card-desc">${info.desc || ''}</div>
+                </div>
+            `;
+            card.addEventListener('click', () => {
+                APP.selectedFinish = finish;
+                fc.querySelectorAll('.finish-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                updatePrice();
+            });
+            fc.appendChild(card);
         });
-        fc.appendChild(chip);
-    });
+    } else {
+        // Simple chips (ABS, sandstone)
+        mat.finishes.forEach((finish, i) => {
+            const chip = document.createElement('div');
+            chip.className = `finish-chip ${i === 0 ? 'selected' : ''}`;
+            chip.textContent = finish;
+            chip.addEventListener('click', () => {
+                APP.selectedFinish = finish;
+                fc.querySelectorAll('.finish-chip').forEach(c => c.classList.remove('selected'));
+                chip.classList.add('selected');
+                updatePrice();
+            });
+            fc.appendChild(chip);
+        });
+    }
 }
 
 function setPreset(size) {
@@ -623,7 +648,13 @@ function updatePrice() {
 
     const orderBtn = document.getElementById('btn-order');
 
-    if (!APP.quoteLoaded) {
+    if (!APP.quoteLoaded || result.pending) {
+        orderBtn.textContent = '⏳ Retrieving quote...';
+        orderBtn.disabled = true;
+        return;
+    }
+
+    if (result.total <= 0) {
         orderBtn.textContent = '⏳ Retrieving quote...';
         orderBtn.disabled = true;
         return;

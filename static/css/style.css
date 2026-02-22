@@ -560,6 +560,33 @@ input[type="range"]::-webkit-slider-thumb {
 .finish-chip:hover { border-color: var(--primary); }
 .finish-chip.selected { background: var(--accent); color: white; border-color: var(--accent); }
 
+/* Finish cards (bronze) */
+.finish-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: var(--bg);
+    border: 2px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: var(--transition);
+    margin-bottom: 8px;
+}
+.finish-card:hover { border-color: var(--border); }
+.finish-card.selected { border-color: var(--primary); background: #FFF5EE; }
+
+.finish-card-swatch {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
+
+.finish-card-info { flex: 1; }
+.finish-card-name { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+.finish-card-desc { font-size: 12px; color: var(--text-muted); line-height: 1.3; }
+
 /* ─── Quote Card ─── */
 .quote-card {
     background: linear-gradient(135deg, var(--accent), var(--accent-dark));
