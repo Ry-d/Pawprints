@@ -108,6 +108,7 @@ function showPortal() {
     }
     
     document.getElementById('portal-credits').textContent = getUserCredits();
+    renderSavedModels();
     renderOrderHistory();
     
     document.getElementById('screen-portal').classList.add('active');
@@ -172,6 +173,68 @@ function addOrder(order) {
     const orders = getOrderHistory();
     orders.unshift(order);
     localStorage.setItem(`pp_orders_${currentUser.uid}`, JSON.stringify(orders));
+}
+
+// ─── Saved Models (for repeat orders) ───
+function getSavedModels() {
+    if (!currentUser) return [];
+    const data = localStorage.getItem(`pp_models_${currentUser.uid}`);
+    return data ? JSON.parse(data) : [];
+}
+
+function saveModel(modelData) {
+    if (!currentUser) return;
+    const models = getSavedModels();
+    models.unshift(modelData);
+    localStorage.setItem(`pp_models_${currentUser.uid}`, JSON.stringify(models.slice(0, 20))); // keep 20 max
+}
+
+function renderSavedModels() {
+    const models = getSavedModels();
+    const container = document.getElementById('portal-models');
+    if (!container) return;
+
+    if (models.length === 0) {
+        container.innerHTML = '<div class="empty-state">No saved pets yet — create your first keepsake!</div>';
+        return;
+    }
+
+    container.innerHTML = models.map((m, i) => `
+        <div class="saved-model-card">
+            <img src="${m.sourceImage || m.processedImage || ''}" alt="Pet" class="saved-model-img">
+            <div class="saved-model-info">
+                <div class="saved-model-name">${m.petName || 'My Pet'} <span class="saved-model-type">${m.productType || 'statue'}</span></div>
+                <div class="saved-model-date">${m.date || ''}</div>
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="reorderModel(${i})">Reorder</button>
+        </div>
+    `).join('');
+}
+
+function reorderModel(idx) {
+    const models = getSavedModels();
+    const m = models[idx];
+    if (!m) return;
+    APP.modelUrl = m.modelUrl;
+    APP.productType = m.productType || 'statue';
+    APP.processedImage = m.processedImage;
+    APP.processedPath = m.processedPath;
+    hidePortal();
+    initCustomise();
+    showScreen('customise');
+}
+
+// ─── Social Sharing ───
+function shareOrder(orderId, price) {
+    const text = encodeURIComponent(`Just ordered a custom 3D-printed pet keepsake from PawPrints! 🐾✨ Check it out:`);
+    const url = encodeURIComponent('https://douphraite.com');
+    
+    return {
+        facebook: `https://www.facebook.com/sharer/sharer.php?u=${url}&quote=${text}`,
+        x: `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
+        instagram: null, // no direct share URL — prompt user to screenshot
+        whatsapp: `https://wa.me/?text=${text}%20${url}`,
+    };
 }
 
 function renderOrderHistory() {

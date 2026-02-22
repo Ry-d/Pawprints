@@ -557,8 +557,36 @@ function goToOrder() {
 }
 
 function placeOrder() {
+    const orderId = 'PP-' + Date.now().toString(36).toUpperCase();
+
+    // Save model for repeat orders
+    if (typeof saveModel === 'function') {
+        saveModel({
+            modelUrl: APP.modelUrl,
+            processedImage: APP.processedImage,
+            processedPath: APP.processedPath,
+            sourceImage: APP.previewUrl,
+            productType: APP.productType,
+            material: APP.selectedMaterial,
+            date: new Date().toLocaleDateString(),
+        });
+    }
+
+    // Save order
+    if (typeof addOrder === 'function') {
+        addOrder({
+            id: orderId,
+            product: APP.productType === 'keyring' ? 'Keyring' : 'Statue',
+            material: MATERIALS[APP.selectedMaterial]?.name || APP.selectedMaterial,
+            size: APP.selectedHeight + 'mm',
+            price: '$' + APP.price.total.toFixed(2) + ' AUD',
+            status: 'Processing',
+            date: new Date().toISOString(),
+        });
+    }
+
     showScreen('success');
-    document.getElementById('success-order-id').textContent = 'PP-' + Date.now().toString(36).toUpperCase();
+    document.getElementById('success-order-id').textContent = orderId;
 }
 
 // ─── Reroll 3D Model (costs Meshy credits) ───
@@ -608,6 +636,37 @@ function updateRerollUI() {
     const count = document.getElementById('reroll-count');
     count.textContent = APP.remaining;
     btn.disabled = APP.remaining <= 0;
+}
+
+// ─── Collapsible ───
+function toggleCollapsible(id) {
+    const el = document.getElementById(id);
+    const arrow = document.getElementById(id + '-arrow');
+    if (el.style.display === 'none') {
+        el.style.display = 'block';
+        if (arrow) arrow.classList.add('open');
+    } else {
+        el.style.display = 'none';
+        if (arrow) arrow.classList.remove('open');
+    }
+}
+
+// ─── Social Sharing ───
+function shareTo(platform) {
+    const text = encodeURIComponent('Just ordered a custom 3D-printed pet keepsake from PawPrints! 🐾✨');
+    const url = encodeURIComponent('https://douphraite.com');
+    const links = {
+        facebook: `https://www.facebook.com/sharer/sharer.php?u=${url}`,
+        x: `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
+        whatsapp: `https://wa.me/?text=${text}%20${url}`,
+    };
+    if (links[platform]) window.open(links[platform], '_blank');
+}
+
+function copyShareLink() {
+    navigator.clipboard.writeText('https://douphraite.com').then(() => {
+        alert('Link copied! 📋');
+    });
 }
 
 // ─── Init ───

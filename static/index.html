@@ -59,21 +59,39 @@
             <div class="portal-avatar" id="portal-avatar">👤</div>
             <div><div class="portal-name" id="portal-name"></div><div class="portal-email" id="portal-email"></div></div>
         </div>
+
+        <!-- Credits -->
         <div class="config-card">
             <h3>⚡ Credits</h3>
             <div class="credits-display"><span class="credits-count" id="portal-credits">3</span><span class="credits-label">3D generations remaining</span></div>
             <button class="btn btn-primary btn-sm" onclick="alert('Stripe checkout coming soon!')" style="margin-top:10px;">Buy More Credits</button>
         </div>
+
+        <!-- Saved Pets / Models -->
         <div class="config-card">
-            <h3>📦 Delivery Details</h3>
-            <div class="form-group"><label>Phone</label><input type="tel" id="profile-phone" placeholder="+61 400 000 000"></div>
-            <div class="form-group"><label>Street Address</label><input type="text" id="profile-address" placeholder="123 Main Street"></div>
-            <div class="form-row"><div class="form-group"><label>City</label><input type="text" id="profile-city" placeholder="Sydney"></div><div class="form-group"><label>State</label><input type="text" id="profile-state" placeholder="NSW"></div></div>
-            <div class="form-row"><div class="form-group"><label>Postcode</label><input type="text" id="profile-postcode" placeholder="2000"></div><div class="form-group"><label>Country</label><select id="profile-country"><option value="AU" selected>Australia</option><option value="US">United States</option><option value="UK">United Kingdom</option><option value="NZ">New Zealand</option><option value="CA">Canada</option></select></div></div>
-            <div class="form-group" style="margin-top:12px;"><label class="checkbox-label"><input type="checkbox" id="profile-marketing"> Send me updates about new products and offers</label></div>
-            <button class="btn btn-accent btn-sm" onclick="saveUserProfile()" style="margin-top:12px;">Save Details</button>
+            <h3>🐾 My Pets</h3>
+            <div id="portal-models"><div class="empty-state">No saved pets yet — create your first keepsake!</div></div>
         </div>
-        <div class="config-card"><h3>📋 Order History</h3><div id="portal-orders"><div class="empty-state">No orders yet</div></div></div>
+
+        <!-- Order History -->
+        <div class="config-card">
+            <h3>📋 Orders</h3>
+            <div id="portal-orders"><div class="empty-state">No orders yet</div></div>
+        </div>
+
+        <!-- Shipping (collapsible) -->
+        <div class="config-card">
+            <h3 class="collapsible-header" onclick="toggleCollapsible('shipping-details')">📦 Shipping Details <span class="collapse-arrow" id="shipping-details-arrow">▸</span></h3>
+            <div class="collapsible-content" id="shipping-details" style="display:none;">
+                <div class="form-group"><label>Phone</label><input type="tel" id="profile-phone" placeholder="+61 400 000 000"></div>
+                <div class="form-group"><label>Street Address</label><input type="text" id="profile-address" placeholder="123 Main Street"></div>
+                <div class="form-row"><div class="form-group"><label>City</label><input type="text" id="profile-city" placeholder="Sydney"></div><div class="form-group"><label>State</label><input type="text" id="profile-state" placeholder="NSW"></div></div>
+                <div class="form-row"><div class="form-group"><label>Postcode</label><input type="text" id="profile-postcode" placeholder="2000"></div><div class="form-group"><label>Country</label><select id="profile-country"><option value="AU" selected>Australia</option><option value="US">United States</option><option value="UK">United Kingdom</option><option value="NZ">New Zealand</option><option value="CA">Canada</option></select></div></div>
+                <div class="form-group" style="margin-top:12px;"><label class="checkbox-label"><input type="checkbox" id="profile-marketing"> Send me updates about new products and offers</label></div>
+                <button class="btn btn-accent btn-sm" onclick="saveUserProfile()" style="margin-top:12px;">Save Details</button>
+            </div>
+        </div>
+
         <button class="btn btn-secondary" onclick="signOut()" style="margin-top:16px;">Sign Out</button>
     </div>
 </div>
@@ -335,12 +353,38 @@
             </div>
         </div>
 
+        <!-- Social Sharing -->
+        <div class="config-card">
+            <h3>📣 Share the love!</h3>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">Show off your new keepsake</p>
+            <div class="share-buttons">
+                <button class="share-btn share-fb" onclick="shareTo('facebook')">Facebook</button>
+                <button class="share-btn share-x" onclick="shareTo('x')">𝕏</button>
+                <button class="share-btn share-wa" onclick="shareTo('whatsapp')">WhatsApp</button>
+                <button class="share-btn share-copy" onclick="copyShareLink()">📋 Copy Link</button>
+            </div>
+        </div>
+
         <button class="btn btn-primary btn-lg" onclick="location.reload()">
             Create Another Keepsake
         </button>
     </div>
 
 </div>
+
+<!-- Footer with Socials -->
+<footer class="footer">
+    <div class="footer-brand">🐾 PawPrints · Handcrafted in Australia</div>
+    <div class="footer-socials">
+        <a href="https://instagram.com/pawprints" target="_blank" class="social-link">Instagram</a>
+        <a href="https://facebook.com/pawprints" target="_blank" class="social-link">Facebook</a>
+        <a href="https://x.com/pawprints" target="_blank" class="social-link">𝕏</a>
+        <a href="https://tiktok.com/@pawprints" target="_blank" class="social-link">TikTok</a>
+    </div>
+    <div class="footer-links">
+        <a href="#">Terms</a> · <a href="#">Privacy</a> · <a href="#">Contact</a>
+    </div>
+</footer>
 
 <!-- Processing Overlay -->
 <div class="processing-overlay" id="processing-overlay">
