@@ -362,20 +362,36 @@ async def model_status(task_id: str):
             if status in ("SUCCEEDED", "succeeded"):
                 # Download the model
                 model_urls = data.get("model_urls", {})
-                glb_url = model_urls.get("glb") or model_urls.get("obj")
+                glb_url = model_urls.get("glb")
+                stl_url = model_urls.get("stl")  # Shapeways prefers STL
+                obj_url = model_urls.get("obj")
 
-                if glb_url:
+                download_url = glb_url or stl_url or obj_url
+                if download_url:
+                    # Save GLB for viewer
                     model_filename = f"{task_id}.glb"
                     model_path = MODEL_DIR / model_filename
-
-                    if not model_path.exists():
+                    if not model_path.exists() and glb_url:
                         model_resp = await client.get(glb_url)
                         if model_resp.status_code == 200:
                             model_path.write_bytes(model_resp.content)
 
+                    # Save STL for Shapeways (prefer STL, fallback to GLB)
+                    stl_filename = f"{task_id}.stl"
+                    stl_path = MODEL_DIR / stl_filename
+                    if not stl_path.exists() and stl_url:
+                        stl_resp = await client.get(stl_url)
+                        if stl_resp.status_code == 200:
+                            stl_path.write_bytes(stl_resp.content)
+                            print(f"Saved STL for Shapeways: {stl_filename}")
+
+                    # Upload to Shapeways in background
+                    sw_model_id = await upload_to_shapeways(stl_path if stl_path.exists() else model_path)
+
                     return {
                         "status": "completed",
                         "model_url": f"/models/{model_filename}",
+                        "shapeways_model_id": sw_model_id,
                     }
 
                 return {"status": "completed", "model_url": "/static/model.glb"}
@@ -388,6 +404,127 @@ async def model_status(task_id: str):
                 return {"status": "processing", "progress": progress}
 
         return {"status": "error"}
+
+
+# ─── Shapeways: Upload & Quote ───
+
+# Cache: meshy_task_id -> shapeways_model_id
+_shapeways_models: dict = {}
+
+
+async def upload_to_shapeways(model_path: Path) -> Optional[str]:
+    """Upload a 3D model to Shapeways and return the model ID"""
+    token = await get_shapeways_token()
+    if not token:
+        print("Shapeways: no token, skipping upload")
+        return None
+
+    if not model_path.exists():
+        print(f"Shapeways: model file not found: {model_path}")
+        return None
+
+    import base64
+    model_data = base64.b64encode(model_path.read_bytes()).decode()
+    filename = model_path.name
+
+    print(f"Uploading to Shapeways: {filename} ({model_path.stat().st_size / 1024:.0f}KB)")
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(
+            "https://api.shapeways.com/models/v1",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "fileName": filename,
+                "file": model_data,
+                "hasRightsToModel": 1,
+                "acceptTermsAndConditions": 1,
+                "units": "mm",
+            },
+        )
+
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            model_id = data.get("modelId") or data.get("model_id") or data.get("id")
+            print(f"Shapeways model uploaded: {model_id}")
+            # Cache it
+            task_stem = model_path.stem  # the meshy task_id
+            _shapeways_models[task_stem] = model_id
+            return str(model_id) if model_id else None
+        else:
+            print(f"Shapeways upload error: {resp.status_code} - {resp.text[:500]}")
+            return None
+
+
+@app.get("/api/shapeways-quote/{task_id}")
+async def get_shapeways_quote(task_id: str):
+    """Get real Shapeways pricing for a model that was uploaded"""
+    token = await get_shapeways_token()
+    if not token:
+        return {"source": "estimated", "error": "Shapeways not configured"}
+
+    # Find the Shapeways model ID
+    model_id = _shapeways_models.get(task_id)
+    if not model_id:
+        return {"source": "estimated", "error": "Model not yet uploaded to Shapeways"}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            f"https://api.shapeways.com/models/{model_id}/v1",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        if resp.status_code == 200:
+            data = resp.json()
+            materials_data = data.get("materials", {})
+
+            # Map Shapeways material IDs to our material names
+            # Common Shapeways material IDs:
+            # 6 = White Strong & Flexible (Nylon)
+            # 25 = Stainless Steel
+            # 26 = Gold Plated Steel
+            # 62 = Metallic Plastic
+            # 81 = Frosted Detail Plastic
+            # 85 = Raw Bronze
+            # 86 = Polished Bronze
+            # 87 = Raw Brass
+
+            quotes = {}
+            for mat_id, mat_info in materials_data.items():
+                price = float(mat_info.get("price", 0))
+                name = mat_info.get("title", f"Material {mat_id}")
+                if price > 0:
+                    quotes[mat_id] = {
+                        "name": name,
+                        "shapeways_cost": round(price, 2),
+                    }
+
+            # Extract key materials for our tiers
+            result = {
+                "source": "shapeways",
+                "model_id": model_id,
+                "all_materials": quotes,
+                "dimensions": data.get("dimensions", {}),
+            }
+
+            # Find bronze specifically
+            for mat_id, q in quotes.items():
+                lower_name = q["name"].lower()
+                if "bronze" in lower_name and "raw" in lower_name:
+                    result["bronze_raw"] = q
+                elif "bronze" in lower_name and "polished" in lower_name:
+                    result["bronze_polished"] = q
+                elif "bronze" in lower_name:
+                    result["bronze"] = q
+
+            print(f"Shapeways quote for model {model_id}: {len(quotes)} materials available")
+            return result
+
+        else:
+            print(f"Shapeways quote error: {resp.status_code} - {resp.text[:300]}")
+            return {"source": "error", "error": f"API error {resp.status_code}"}
 
 
 # ─── User Profiles (in-memory for MVP, move to DB later) ───

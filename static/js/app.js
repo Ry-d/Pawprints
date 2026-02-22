@@ -19,6 +19,10 @@ const APP = {
     uploadPath: null,       // original upload server path
     bankedImage: null,      // banked Gemini image URL
     bankedPath: null,       // banked server path
+    meshyTaskId: null,      // for Shapeways quote lookup
+    shapewaysModelId: null, // Shapeways model ID
+    shapewaysQuotes: null,  // real Shapeways material quotes
+    _shapewaysBronzeCost: null, // bronze cost from Shapeways
 };
 
 // ─── Navigation ───
@@ -271,9 +275,21 @@ async function approveAndGenerate() {
         if (genData.remaining !== undefined) APP.remaining = genData.remaining;
 
         if (genData.task_id) {
-            await pollModelStatus(genData.task_id);
+            APP.meshyTaskId = genData.task_id;
+            const result = await pollModelStatus(genData.task_id);
+            if (result && result.shapeways_model_id) {
+                APP.shapewaysModelId = result.shapeways_model_id;
+            }
         } else if (genData.model_url) {
             APP.modelUrl = genData.model_url;
+        }
+
+        setProgress(95);
+        // Fetch real Shapeways quote
+        if (APP.meshyTaskId) {
+            document.getElementById('processing-text').textContent = 'Getting price quote...';
+            document.getElementById('processing-sub').textContent = 'Almost done';
+            await fetchShapewaysQuote(APP.meshyTaskId);
         }
 
         setProgress(100);
@@ -300,7 +316,10 @@ async function pollModelStatus(taskId) {
         try {
             const res = await fetch(`/api/model-status/${taskId}`);
             const data = await res.json();
-            if (data.status === 'completed') { APP.modelUrl = data.model_url; return; }
+            if (data.status === 'completed') {
+                APP.modelUrl = data.model_url;
+                return data;
+            }
             if (data.status === 'failed') throw new Error('Failed');
             document.getElementById('processing-sub').textContent = `Generating... ${data.progress || Math.round(25 + i * 0.6)}%`;
         } catch (e) { /* continue */ }
@@ -363,6 +382,40 @@ function initCustomise() {
     updatePrice();
     updateRerollUI();
     bindCustomiseEvents();
+}
+
+// ─── Shapeways Real Quotes ───
+async function fetchShapewaysQuote(taskId) {
+    try {
+        // Give Shapeways a moment to process the uploaded model
+        await new Promise(r => setTimeout(r, 3000));
+
+        const res = await fetch(`/api/shapeways-quote/${taskId}`);
+        const data = await res.json();
+
+        if (data.source === 'shapeways' && data.all_materials) {
+            APP.shapewaysQuotes = data.all_materials;
+            APP.shapewaysDimensions = data.dimensions;
+
+            // Map Shapeways prices to our materials
+            for (const [matId, quote] of Object.entries(data.all_materials)) {
+                const name = quote.name.toLowerCase();
+                if (name.includes('bronze')) {
+                    APP._shapewaysBronzeCost = quote.shapeways_cost;
+                }
+                // Can map other materials too as needed
+            }
+
+            // Update bronze/keyring cost
+            if (data.bronze_raw) APP._shapewaysBronzeCost = data.bronze_raw.shapeways_cost;
+            if (data.bronze) APP._shapewaysBronzeCost = data.bronze.shapeways_cost;
+
+            console.log('Shapeways quotes loaded:', data.all_materials);
+            console.log('Bronze cost:', APP._shapewaysBronzeCost);
+        }
+    } catch (e) {
+        console.error('Shapeways quote error:', e);
+    }
 }
 
 // switchProduct removed — product type is locked from Screen 1
@@ -494,17 +547,56 @@ function updatePrice() {
     let result;
 
     if (APP.productType === 'keyring') {
-        // Keyring: fixed tier pricing, will update with real Shapeways quote
-        result = calculateKeyringPrice(APP._shapewaysCost || null);
+        // Keyring: use real Shapeways bronze cost if available
+        result = calculateKeyringPrice(APP._shapewaysBronzeCost || null);
     } else {
-        result = calculatePrice(APP.selectedMaterial, APP.selectedHeight, APP.selectedFinish);
+        // Statue: check for real Shapeways quote for selected material
+        const swQuotes = APP.shapewaysQuotes || {};
+        let realCost = null;
+
+        // Try to find matching Shapeways material
+        const matName = MATERIALS[APP.selectedMaterial]?.name?.toLowerCase() || '';
+        for (const [matId, quote] of Object.entries(swQuotes)) {
+            const qName = quote.name.toLowerCase();
+            if (matName.includes('bronze') && qName.includes('bronze')) {
+                realCost = quote.shapeways_cost;
+                break;
+            }
+            if (matName.includes('sandstone') && (qName.includes('sandstone') || qName.includes('full color'))) {
+                realCost = quote.shapeways_cost;
+                break;
+            }
+            if (matName.includes('abs') && (qName.includes('plastic') || qName.includes('nylon') || qName.includes('versatile'))) {
+                realCost = quote.shapeways_cost;
+                break;
+            }
+        }
+
+        if (realCost) {
+            // Use real Shapeways cost + our tiered margin
+            const marginPct = MARGIN_TIERS[APP.selectedMaterial] || 0.65;
+            let markup = realCost * marginPct;
+            if (markup < (MIN_PROFIT + API_COST_PER_ORDER)) {
+                markup = MIN_PROFIT + API_COST_PER_ORDER;
+            }
+            result = {
+                baseCost: realCost,
+                markup: markup,
+                total: realCost + markup,
+                source: 'shapeways',
+            };
+        } else {
+            // Fallback to local estimate
+            result = calculatePrice(APP.selectedMaterial, APP.selectedHeight, APP.selectedFinish);
+        }
     }
 
     if (!result) return;
     APP.price = result;
 
     const priceStr = '$' + result.total.toFixed(2) + ' AUD';
-    document.getElementById('btn-order').textContent = `Continue · ${priceStr}`;
+    const source = result.source === 'shapeways' ? '' : ' (est.)';
+    document.getElementById('btn-order').textContent = `Continue · ${priceStr}${source}`;
 }
 
 function resetView() {
