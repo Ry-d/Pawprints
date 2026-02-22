@@ -201,17 +201,14 @@
             </div>
         </div>
 
-        <!-- Banked Image -->
-        <div class="approve-section" id="banked-section" style="display:none;">
-            <div class="approve-label">⭐ Banked <span class="banked-hint">— your saved favourite</span></div>
-            <div class="preview-container banked" id="banked-preview">
-                <img id="banked-img" alt="Banked image">
-            </div>
-            <button class="btn btn-secondary btn-sm" onclick="useBanked()" style="margin-top:8px;">Use banked image instead</button>
+        <!-- Banked Image (floating, Tetris hold style) -->
+        <div class="banked-float" id="banked-section" style="display:none;" onclick="swapBanked()">
+            <div class="banked-float-label">⭐ HOLD</div>
+            <img id="banked-img" alt="Banked image">
         </div>
 
         <!-- Approve Button -->
-        <button class="btn btn-accent btn-lg" id="btn-approve" onclick="approveAndGenerate()" style="margin-top:16px;">
+        <button class="btn btn-accent btn-lg" id="btn-approve" onclick="showConfirmModal()" style="margin-top:16px;">
             ✅ Generate 3D Model
         </button>
 
@@ -385,6 +382,20 @@
         <a href="#">Terms</a> · <a href="#">Privacy</a> · <a href="#">Contact</a>
     </div>
 </footer>
+
+<!-- Confirm Generate Modal -->
+<div class="auth-modal" id="confirm-modal">
+    <div class="auth-card">
+        <button class="auth-close" onclick="hideConfirmModal()">✕</button>
+        <h2>Generate 3D Model?</h2>
+        <p style="margin-bottom:16px;">This image will be sent to generate your 3D model. This uses 1 credit.</p>
+        <div class="confirm-preview">
+            <img id="confirm-img" alt="Image to generate" style="width:100%;max-height:40vh;object-fit:contain;border-radius:12px;">
+        </div>
+        <button class="btn btn-accent btn-lg" onclick="confirmGenerate()" style="margin-top:16px;">✅ Yes, generate</button>
+        <button class="btn btn-secondary" onclick="hideConfirmModal()" style="margin-top:8px;">Cancel</button>
+    </div>
+</div>
 
 <!-- Processing Overlay -->
 <div class="processing-overlay" id="processing-overlay">

@@ -200,7 +200,7 @@ async function uploadAndProcessImage(file) {
     }
 }
 
-// Bank current image
+// Bank current image — saves to floating hold slot
 function bankCurrent() {
     if (!APP.processedImage) return;
     APP.bankedImage = APP.processedImage;
@@ -210,10 +210,9 @@ function bankCurrent() {
     document.getElementById('banked-section').style.display = 'block';
 }
 
-// Swap banked image to current (and use it for generation)
-function useBanked() {
+// Swap banked ↔ current (clicking the hold piece)
+function swapBanked() {
     if (!APP.bankedImage) return;
-    // Swap current and banked
     const tempImg = APP.processedImage;
     const tempPath = APP.processedPath;
 
@@ -224,6 +223,21 @@ function useBanked() {
 
     document.getElementById('approve-img').src = APP.processedImage;
     document.getElementById('banked-img').src = APP.bankedImage;
+}
+
+// Confirm modal before generating
+function showConfirmModal() {
+    document.getElementById('confirm-img').src = APP.processedImage;
+    document.getElementById('confirm-modal').classList.add('active');
+}
+
+function hideConfirmModal() {
+    document.getElementById('confirm-modal').classList.remove('active');
+}
+
+function confirmGenerate() {
+    hideConfirmModal();
+    approveAndGenerate();
 }
 
 // Reroll Gemini (free — doesn't touch Meshy)
