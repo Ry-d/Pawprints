@@ -88,6 +88,31 @@ const MARGIN_TIERS = {
 
 const MIN_PROFIT = 20.00; // floor: at least $20 profit per order
 
+// ─── Keyring: fixed pricing tiers (bronze only, 50mm) ───
+const KEYRING_TIERS = {
+    // Shapeways cost → our retail price
+    // cost ≤ $85  → $149
+    // $85–$110    → $169
+    // cost > $110 → $189
+    getPrice(shapewaysCost) {
+        if (shapewaysCost <= 85) return 149;
+        if (shapewaysCost <= 110) return 169;
+        return 189;
+    }
+};
+
+function calculateKeyringPrice(shapewaysCost) {
+    const retail = KEYRING_TIERS.getPrice(shapewaysCost || 0);
+    const baseCost = shapewaysCost || 60; // estimate if no Shapeways quote yet
+    return {
+        baseCost: baseCost,
+        retail: retail,
+        profit: retail - baseCost - API_COST_PER_ORDER,
+        total: retail,
+        isKeyring: true,
+    };
+}
+
 /**
  * Calculate price for a given material, height, and finish
  * Estimates volume from height assuming rough pet statue proportions

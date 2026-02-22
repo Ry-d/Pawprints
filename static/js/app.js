@@ -323,26 +323,39 @@ function initCustomise() {
     document.getElementById('product-label').textContent = 
         APP.productType === 'keyring' ? '🔑 Keyring' : '🗿 Statue';
 
-    // Keyring: lock size
     const isKeyring = APP.productType === 'keyring';
     const sizeCard = document.getElementById('size-card');
+    const materialCard = document.getElementById('material-card');
 
     if (isKeyring) {
+        // Keyring: locked to bronze, 50mm
         APP.selectedHeight = 50;
+        APP.selectedMaterial = 'bronze';
+        APP.selectedColor = MATERIALS.bronze.colors[0];
+        APP.selectedFinish = MATERIALS.bronze.finishes[0];
+
         sizeCard.style.opacity = '0.5';
         sizeCard.style.pointerEvents = 'none';
         document.getElementById('size-slider').value = 50;
         document.getElementById('size-badge').textContent = '50mm (fixed)';
+
+        if (materialCard) {
+            materialCard.style.opacity = '0.5';
+            materialCard.style.pointerEvents = 'none';
+        }
     } else {
         APP.selectedHeight = 150;
+        APP.selectedMaterial = 'abs';
+        APP.selectedColor = MATERIALS.abs.colors[0];
+        APP.selectedFinish = MATERIALS.abs.finishes[0];
+
         sizeCard.style.opacity = '';
         sizeCard.style.pointerEvents = '';
-        document.getElementById('size-slider').value = 150;
+        if (materialCard) {
+            materialCard.style.opacity = '';
+            materialCard.style.pointerEvents = '';
+        }
     }
-
-    APP.selectedMaterial = 'abs';
-    APP.selectedColor = MATERIALS.abs.colors[0];
-    APP.selectedFinish = MATERIALS.abs.finishes[0];
 
     renderMaterials();
     renderOptions();
@@ -478,11 +491,18 @@ function updateSizeUI() {
 }
 
 function updatePrice() {
-    const result = calculatePrice(APP.selectedMaterial, APP.selectedHeight, APP.selectedFinish);
+    let result;
+
+    if (APP.productType === 'keyring') {
+        // Keyring: fixed tier pricing, will update with real Shapeways quote
+        result = calculateKeyringPrice(APP._shapewaysCost || null);
+    } else {
+        result = calculatePrice(APP.selectedMaterial, APP.selectedHeight, APP.selectedFinish);
+    }
+
     if (!result) return;
     APP.price = result;
 
-    // Update all price displays
     const priceStr = '$' + result.total.toFixed(2) + ' AUD';
     document.getElementById('btn-order').textContent = `Continue · ${priceStr}`;
 }
@@ -507,8 +527,8 @@ function goToOrder() {
     const priceStr = '$' + APP.price.total.toFixed(2) + ' AUD';
 
     document.getElementById('order-total-price').textContent = priceStr;
-    document.getElementById('order-product').textContent = APP.productType === 'keyring' ? 'Keyring' : 'Statue';
-    document.getElementById('order-material').textContent = mat.name;
+    document.getElementById('order-product').textContent = APP.productType === 'keyring' ? 'Keyring (Bronze)' : 'Statue';
+    document.getElementById('order-material').textContent = APP.productType === 'keyring' ? 'Lost Wax Bronze' : mat.name;
     document.getElementById('order-size').textContent = APP.selectedHeight + 'mm';
 
     // Colour display (read-only)
