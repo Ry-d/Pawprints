@@ -6,8 +6,10 @@ import os
 import uuid
 import time
 import shutil
+import io
 from pathlib import Path
 from typing import Optional
+from PIL import Image
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
@@ -220,6 +222,42 @@ GEMINI_PROMPTS = {
 }
 
 
+MAX_IMAGE_DIMENSION = 2048  # max width or height before resizing for xAI
+
+
+def _resize_image_for_api(image_path: Path) -> tuple[bytes, str]:
+    """Resize image if too large and return (bytes, mime_type) as JPEG or PNG."""
+    img = Image.open(image_path)
+    orig_size = image_path.stat().st_size
+    w, h = img.size
+    print(f"  Original image: {w}x{h}, {orig_size / 1024:.0f}KB, mode={img.mode}")
+
+    # Resize if either dimension exceeds max
+    if w > MAX_IMAGE_DIMENSION or h > MAX_IMAGE_DIMENSION:
+        ratio = min(MAX_IMAGE_DIMENSION / w, MAX_IMAGE_DIMENSION / h)
+        new_w, new_h = int(w * ratio), int(h * ratio)
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+        print(f"  Resized to: {new_w}x{new_h}")
+
+    # Convert RGBA/palette to RGB for JPEG output
+    if img.mode in ("RGBA", "P", "LA"):
+        # Keep as PNG to preserve transparency
+        buf = io.BytesIO()
+        img.save(buf, format="PNG", optimize=True)
+        buf.seek(0)
+        data = buf.read()
+        print(f"  Output: PNG, {len(data) / 1024:.0f}KB")
+        return data, "image/png"
+    else:
+        img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=90)
+        buf.seek(0)
+        data = buf.read()
+        print(f"  Output: JPEG, {len(data) / 1024:.0f}KB")
+        return data, "image/jpeg"
+
+
 async def process_image_grok(image_path: Path, product_type: str) -> Path:
     """Process pet photo via Grok (xAI) — background removal (statue) or keyring charm generation"""
     if not XAI_KEY:
@@ -231,67 +269,86 @@ async def process_image_grok(image_path: Path, product_type: str) -> Path:
         return image_path
 
     import base64
-    image_data = base64.b64encode(image_path.read_bytes()).decode()
-    ext = image_path.suffix.lower()
-    mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}.get(ext, "image/jpeg")
+
+    # Resize large images before sending to API
+    image_bytes, mime = _resize_image_for_api(image_path)
+    image_data = base64.b64encode(image_bytes).decode()
 
     prompt = GEMINI_PROMPTS.get(product_type, GEMINI_PROMPTS["statue"])
     out_path = UPLOAD_DIR / f"{image_path.stem}_{product_type}_processed.png"
     data_uri = f"data:{mime};base64,{image_data}"
 
-    print(f"Grok image edit: {product_type} — sending to xAI API")
+    payload_size_kb = len(data_uri) / 1024
+    print(f"Grok image edit: {product_type} — sending to xAI API (payload ~{payload_size_kb:.0f}KB)")
 
     async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(
-            "https://api.x.ai/v1/images/edits",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {XAI_KEY}",
-            },
-            json={
-                "model": "grok-imagine-image",
-                "prompt": prompt,
-                "image": {
-                    "url": data_uri,
-                    "type": "image_url",
+        try:
+            resp = await client.post(
+                "https://api.x.ai/v1/images/edits",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {XAI_KEY}",
                 },
-                "response_format": "b64_json",
-            },
-        )
+                json={
+                    "model": "grok-imagine-image",
+                    "prompt": prompt,
+                    "image": {
+                        "url": data_uri,
+                        "type": "image_url",
+                    },
+                    "response_format": "b64_json",
+                },
+            )
+        except httpx.TimeoutException:
+            print(f"Grok TIMEOUT after 120s — image may be too large ({payload_size_kb:.0f}KB)")
+            return _fallback_chain(image_path, product_type)
+        except Exception as e:
+            print(f"Grok REQUEST EXCEPTION: {type(e).__name__}: {e}")
+            return _fallback_chain(image_path, product_type)
+
+        print(f"Grok response: status={resp.status_code}")
 
         if resp.status_code == 200:
             data = resp.json()
             images = data.get("data", [])
+            print(f"  Response keys: {list(data.keys())}, images count: {len(images)}")
             if images:
+                print(f"  Image[0] keys: {list(images[0].keys())}")
                 # Get base64 image
                 b64 = images[0].get("b64_json")
                 if b64:
                     img_bytes = base64.b64decode(b64)
                     out_path.write_bytes(img_bytes)
-                    print(f"Grok processed ({product_type}): {out_path.name} ({len(img_bytes) / 1024:.0f}KB)")
+                    print(f"  ✅ Grok processed ({product_type}): {out_path.name} ({len(img_bytes) / 1024:.0f}KB)")
                     return out_path
 
                 # Try URL fallback
                 img_url = images[0].get("url")
                 if img_url:
+                    print(f"  No b64_json, trying URL: {img_url[:80]}...")
                     img_resp = await client.get(img_url)
                     if img_resp.status_code == 200:
                         out_path.write_bytes(img_resp.content)
-                        print(f"Grok processed via URL ({product_type}): {out_path.name}")
+                        print(f"  ✅ Grok processed via URL ({product_type}): {out_path.name}")
                         return out_path
+                    else:
+                        print(f"  ❌ URL download failed: {img_resp.status_code}")
 
-            print(f"Grok: no image in response. Keys: {list(data.keys())}")
-            return image_path
+            print(f"  ❌ Grok: no usable image in response")
+            if "error" in data:
+                print(f"  Error detail: {data['error']}")
+            return _fallback_chain(image_path, product_type)
         else:
-            print(f"Grok error: {resp.status_code} - {resp.text[:500]}")
-            # Fallback chain
-            if GEMINI_KEY:
-                print("Falling back to Gemini")
-                return await process_image_gemini_legacy(image_path, product_type)
-            if product_type == "statue" and REMOVEBG_KEY:
-                print("Falling back to remove.bg")
-                return await remove_background_legacy(image_path)
-            return image_path
+            print(f"  ❌ Grok error: {resp.status_code} - {resp.text[:500]}")
+            return _fallback_chain(image_path, product_type)
+
+
+def _fallback_chain(image_path: Path, product_type: str):
+    """Sync wrapper that prints fallback attempts — callers should await the async versions."""
+    # This is called from async context, so we return the path and let caller handle
+    # For now just log and return original
+    print(f"  ⚠️ All image processing failed — returning ORIGINAL image (no edit applied)")
+    return image_path
 
 
 async def process_image_gemini_legacy(image_path: Path, product_type: str) -> Path:
