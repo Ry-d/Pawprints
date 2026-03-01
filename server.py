@@ -237,7 +237,9 @@ async def generate_3d(data: dict, request: Request):
             print("Using single-image to 3D (no multi-view)")
             task_id = await start_3d_generation(processed_path)
     except Exception as e:
-        print(f"3D generation error: {e}")
+        import traceback
+        print(f"3D generation error: {type(e).__name__}: {e}")
+        traceback.print_exc()
         task_id = None
 
     if task_id:
@@ -568,40 +570,53 @@ async def start_3d_generation_multiview(image_paths: list[Path]) -> Optional[str
     import base64 as b64mod
 
     image_urls = []
+    total_size = 0
     for img_path in image_paths:
-        image_data = b64mod.b64encode(img_path.read_bytes()).decode()
-        ext = img_path.suffix.lower()
-        mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}.get(ext, "image/jpeg")
-        image_urls.append(f"data:{mime};base64,{image_data}")
+        # Resize images to keep payload manageable
+        img_bytes, mime = _resize_image_for_api(img_path)
+        image_data = b64mod.b64encode(img_bytes).decode()
+        data_uri = f"data:{mime};base64,{image_data}"
+        image_urls.append(data_uri)
+        total_size += len(data_uri)
+        print(f"  View {img_path.name}: {len(img_bytes) / 1024:.0f}KB")
 
-    print(f"Meshy multi-image: sending {len(image_urls)} views")
+    print(f"Meshy multi-image: sending {len(image_urls)} views (total payload ~{total_size / 1024:.0f}KB)")
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            "https://api.meshy.ai/openapi/v1/multi-image-to-3d",
-            headers={
-                "Authorization": f"Bearer {MESHY_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "image_urls": image_urls,
-                "ai_model": "meshy-6",
-                "topology": "triangle",
-                "target_polycount": 30000,
-            },
-        )
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
+                "https://api.meshy.ai/openapi/v1/multi-image-to-3d",
+                headers={
+                    "Authorization": f"Bearer {MESHY_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "image_urls": image_urls,
+                    "ai_model": "meshy-6",
+                    "topology": "triangle",
+                    "target_polycount": 30000,
+                },
+            )
 
-        if resp.status_code in (200, 201, 202):
-            data = resp.json()
-            task_id = data.get("result") or data.get("id")
-            print(f"Meshy multi-image task started: {task_id}")
-            _multiview_tasks.add(task_id)
-            return task_id
-        else:
-            print(f"Meshy multi-image error: {resp.status_code} - {resp.text[:500]}")
-            # Fallback to single-image with first view
-            print("Falling back to single-image generation")
-            return await start_3d_generation(image_paths[0])
+            if resp.status_code in (200, 201, 202):
+                data = resp.json()
+                task_id = data.get("result") or data.get("id")
+                print(f"Meshy multi-image task started: {task_id}")
+                _multiview_tasks.add(task_id)
+                return task_id
+            else:
+                print(f"Meshy multi-image error: {resp.status_code} - {resp.text[:500]}")
+                # Fallback to single-image with first view
+                print("Falling back to single-image generation")
+                return await start_3d_generation(image_paths[0])
+    except httpx.TimeoutException:
+        print(f"Meshy multi-image TIMEOUT — payload was {total_size / 1024:.0f}KB")
+        print("Falling back to single-image generation")
+        return await start_3d_generation(image_paths[0])
+    except Exception as e:
+        print(f"Meshy multi-image exception: {type(e).__name__}: {e}")
+        print("Falling back to single-image generation")
+        return await start_3d_generation(image_paths[0])
 
 
 async def start_3d_generation(image_path: Path) -> Optional[str]:
