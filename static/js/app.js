@@ -419,6 +419,20 @@ async function approveAndGenerate() {
         setProgress(100);
         hideProcessing();
 
+        // Save model to user account immediately after generation
+        if (typeof saveModel === 'function') {
+            saveModel({
+                modelUrl: APP.modelUrl,
+                processedImage: APP.processedImage,
+                processedPath: APP.processedPath,
+                sourceImage: APP.previewUrl,
+                productType: APP.productType,
+                meshyTaskId: APP.meshyTaskId,
+                multiviewImages: APP.multiviewImages || [],
+                date: new Date().toLocaleDateString(),
+            });
+        }
+
         if (APP.productType === 'keyring') {
             APP.quoteLoaded = true; // fixed price, no need to wait
         }

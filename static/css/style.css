@@ -855,6 +855,74 @@ input[type="range"]::-webkit-slider-thumb {
 .footer-links a { color: var(--text-light); text-decoration: none; }
 .footer-links a:hover { color: var(--primary); }
 
+/* ─── Saved Model Cards (Portal) ─── */
+.saved-model-card {
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+}
+
+.saved-model-card .saved-model-img {
+    width: 100%;
+    max-height: 200px;
+    object-fit: contain;
+    border-radius: 8px;
+    background: #fff;
+    margin-bottom: 8px;
+}
+
+.saved-model-info {
+    margin-bottom: 8px;
+}
+
+.saved-model-name {
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.saved-model-type {
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: 6px;
+}
+
+.saved-model-date {
+    font-size: 12px;
+    color: var(--text-light);
+}
+
+.saved-model-id {
+    font-size: 11px;
+    color: var(--text-light);
+    font-family: monospace;
+}
+
+.saved-model-views {
+    display: flex;
+    gap: 6px;
+    margin: 8px 0;
+    overflow-x: auto;
+}
+
+.saved-model-views img {
+    width: 70px;
+    height: 70px;
+    object-fit: contain;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #fff;
+    flex-shrink: 0;
+}
+
+.saved-model-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
 /* ─── Multi-View Grid ─── */
 .multiview-grid {
     display: grid;

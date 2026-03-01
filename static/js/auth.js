@@ -199,16 +199,35 @@ function renderSavedModels() {
         return;
     }
 
-    container.innerHTML = models.map((m, i) => `
-        <div class="saved-model-card">
-            <img src="${m.sourceImage || m.processedImage || ''}" alt="Pet" class="saved-model-img">
-            <div class="saved-model-info">
-                <div class="saved-model-name">${m.petName || 'My Pet'} <span class="saved-model-type">${m.productType || 'statue'}</span></div>
-                <div class="saved-model-date">${m.date || ''}</div>
+    container.innerHTML = models.map((m, i) => {
+        const mainImg = m.processedImage || m.sourceImage || '';
+        const typeLabel = m.productType === 'keyring' ? '🔑 Keyring' : '🗿 Statue';
+        const hasViews = m.multiviewImages && m.multiviewImages.length > 0;
+
+        let viewThumbs = '';
+        if (hasViews) {
+            viewThumbs = `
+                <div class="saved-model-views">
+                    ${m.multiviewImages.map(v => `<img src="${v.url}" alt="${v.label}" title="${v.label} view">`).join('')}
+                </div>
+            `;
+        }
+
+        return `
+            <div class="saved-model-card">
+                <img src="${mainImg}" alt="Pet" class="saved-model-img">
+                <div class="saved-model-info">
+                    <div class="saved-model-name">${m.petName || 'My Pet'} <span class="saved-model-type">${typeLabel}</span></div>
+                    <div class="saved-model-date">${m.date || ''}</div>
+                    ${m.meshyTaskId ? `<div class="saved-model-id">Model: ${m.meshyTaskId.slice(0, 8)}…</div>` : ''}
+                </div>
+                ${viewThumbs}
+                <div class="saved-model-actions">
+                    <button class="btn btn-sm btn-primary" onclick="reorderModel(${i})">Reorder</button>
+                </div>
             </div>
-            <button class="btn btn-sm btn-primary" onclick="reorderModel(${i})">Reorder</button>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 function reorderModel(idx) {
@@ -219,6 +238,8 @@ function reorderModel(idx) {
     APP.productType = m.productType || 'statue';
     APP.processedImage = m.processedImage;
     APP.processedPath = m.processedPath;
+    APP.multiviewImages = m.multiviewImages || [];
+    APP.meshyTaskId = m.meshyTaskId || null;
     hidePortal();
     initCustomise();
     showScreen('customise');
