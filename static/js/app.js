@@ -23,6 +23,7 @@ const APP = {
     shapewaysModelId: null, // Shapeways model ID
     shapewaysQuotes: null,  // real Shapeways material quotes
     _shapewaysBronzeCost: null, // bronze cost from Shapeways
+    multiviewImages: [],    // [{label, url, path}] from multi-view generation
 };
 
 // ─── Navigation ───
@@ -31,22 +32,25 @@ function showScreen(screenId) {
     document.getElementById(`screen-${screenId}`).classList.add('active');
     APP.currentScreen = screenId;
 
-    const steps = ['upload', 'approve', 'customise', 'order'];
+    const steps = ['upload', 'approve', 'multiview', 'customise', 'order'];
     const idx = steps.indexOf(screenId);
+    // Map to 4 dots: upload=0, approve=1, multiview=1, customise=2, order=3
+    const dotMap = { upload: 0, approve: 1, multiview: 1, customise: 2, order: 3 };
+    const dotIdx = dotMap[screenId] ?? idx;
     document.querySelectorAll('.step-dot').forEach((d, i) => {
         d.className = 'step-dot';
-        if (i < idx) d.classList.add('done');
-        if (i === idx) d.classList.add('active');
+        if (i < dotIdx) d.classList.add('done');
+        if (i === dotIdx) d.classList.add('active');
     });
 
-    const labels = { upload: 'Step 1 of 4', approve: 'Step 2 of 4', customise: 'Step 3 of 4', order: 'Step 4 of 4', success: '✓ Complete' };
+    const labels = { upload: 'Step 1 of 4', approve: 'Step 2 of 4', multiview: 'Step 2 of 4', customise: 'Step 3 of 4', order: 'Step 4 of 4', success: '✓ Complete' };
     document.getElementById('nav-step').textContent = labels[screenId] || '';
     document.getElementById('nav-back').style.display = idx > 0 ? '' : 'none';
     window.scrollTo(0, 0);
 }
 
 function goBack() {
-    const flow = ['upload', 'approve', 'customise', 'order'];
+    const flow = ['upload', 'approve', 'multiview', 'customise', 'order'];
     const idx = flow.indexOf(APP.currentScreen);
     if (idx > 0) showScreen(flow[idx - 1]);
 }
@@ -227,7 +231,14 @@ function swapBanked() {
 
 // Confirm modal before generating
 function showConfirmModal() {
-    document.getElementById('confirm-img').src = APP.processedImage;
+    const confirmPreview = document.getElementById('confirm-img');
+    // If we have multiview, show a grid preview in the confirm modal
+    if (APP.multiviewImages && APP.multiviewImages.length > 0) {
+        confirmPreview.src = APP.processedImage;
+        confirmPreview.alt = `Original + ${APP.multiviewImages.length} views will be used`;
+    } else {
+        confirmPreview.src = APP.processedImage;
+    }
     document.getElementById('confirm-modal').classList.add('active');
 }
 
@@ -268,16 +279,119 @@ async function rerollGemini() {
     }
 }
 
+// Step 1.5: Generate multi-view images from approved photo
+async function startMultiview() {
+    if (!APP.processedPath) return;
+
+    showProcessing('Generating views...', 'Creating front, side & back angles');
+
+    try {
+        setProgress(10);
+        const res = await fetch('/api/generate-multiview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                processed_path: APP.processedPath,
+                product_type: APP.productType,
+            }),
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Multi-view generation failed');
+        }
+
+        setProgress(80);
+        const data = await res.json();
+        APP.multiviewImages = data.views;
+
+        setProgress(100);
+        hideProcessing();
+
+        renderMultiviewGrid();
+        document.getElementById('multiview-remaining').textContent = APP.remaining;
+        showScreen('multiview');
+
+    } catch (err) {
+        hideProcessing();
+        console.error(err);
+        alert('Multi-view generation failed: ' + err.message);
+    }
+}
+
+function renderMultiviewGrid() {
+    const grid = document.getElementById('multiview-grid');
+    grid.innerHTML = '';
+
+    // Original processed image first
+    const origCard = document.createElement('div');
+    origCard.className = 'multiview-card multiview-original';
+    origCard.innerHTML = `
+        <img src="${APP.processedImage}?t=${Date.now()}" alt="Original">
+        <div class="multiview-label">📸 Original</div>
+    `;
+    grid.appendChild(origCard);
+
+    // Generated views
+    APP.multiviewImages.forEach(view => {
+        const card = document.createElement('div');
+        card.className = 'multiview-card';
+        card.innerHTML = `
+            <img src="${view.url}?t=${Date.now()}" alt="${view.label} view">
+            <div class="multiview-label">${view.label} view</div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+async function rerollMultiview() {
+    showProcessing('Regenerating views...', 'Creating new angles');
+    try {
+        setProgress(10);
+        const res = await fetch('/api/generate-multiview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                processed_path: APP.processedPath,
+                product_type: APP.productType,
+            }),
+        });
+
+        if (!res.ok) throw new Error('Reroll failed');
+
+        setProgress(80);
+        const data = await res.json();
+        APP.multiviewImages = data.views;
+
+        setProgress(100);
+        hideProcessing();
+        renderMultiviewGrid();
+    } catch (err) {
+        hideProcessing();
+        alert('Regeneration failed: ' + err.message);
+    }
+}
+
 // Step 2: User approved — now spend Meshy credits
 async function approveAndGenerate() {
     showProcessing('Creating 3D model...', 'This usually takes 2-4 minutes');
 
     try {
         setProgress(10);
+
+        // Include multi-view paths if available
+        const genBody = { processed_path: APP.processedPath };
+        if (APP.multiviewImages && APP.multiviewImages.length > 0) {
+            genBody.multiview_paths = [
+                APP.processedPath,
+                ...APP.multiviewImages.map(v => v.path),
+            ];
+        }
+
         const genRes = await fetch('/api/generate-3d', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ processed_path: APP.processedPath }),
+            body: JSON.stringify(genBody),
         });
 
         if (!genRes.ok) {
@@ -769,10 +883,19 @@ async function rerollModel() {
     showProcessing('Regenerating 3D model...', 'Uses 1 daily credit');
     try {
         setProgress(10);
+
+        const rerollBody = { processed_path: APP.processedPath };
+        if (APP.multiviewImages && APP.multiviewImages.length > 0) {
+            rerollBody.multiview_paths = [
+                APP.processedPath,
+                ...APP.multiviewImages.map(v => v.path),
+            ];
+        }
+
         const genRes = await fetch('/api/generate-3d', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ processed_path: APP.processedPath }),
+            body: JSON.stringify(rerollBody),
         });
 
         if (!genRes.ok) {

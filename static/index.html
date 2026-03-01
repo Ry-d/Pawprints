@@ -208,8 +208,8 @@
         </div>
 
         <!-- Approve Button -->
-        <button class="btn btn-accent btn-lg" id="btn-approve" onclick="showConfirmModal()" style="margin-top:16px;">
-            ✅ Generate 3D Model
+        <button class="btn btn-accent btn-lg" id="btn-approve" onclick="startMultiview()" style="margin-top:16px;">
+            ✅ Generate Views →
         </button>
 
         <button class="btn btn-secondary" onclick="showScreen('upload')" style="margin-top:10px;">
@@ -217,6 +217,32 @@
         </button>
 
         <div class="secure-badge" style="margin-top:12px;">Rerolls are free · 3D generation uses 1 of <span id="approve-remaining">3</span> daily credits</div>
+    </div>
+
+    <!-- ══ SCREEN 1.75: Multi-View Review ══ -->
+    <div class="screen" id="screen-multiview">
+        <div class="hero">
+            <h1>Multi-View Preview</h1>
+            <p>We generated front, side, and back views of your pet. Review them before creating the 3D model.</p>
+        </div>
+
+        <div class="multiview-grid" id="multiview-grid">
+            <!-- Populated dynamically -->
+        </div>
+
+        <button class="btn btn-accent btn-lg" id="btn-confirm-multiview" onclick="showConfirmModal()" style="margin-top:16px;">
+            ✅ Generate 3D Model
+        </button>
+
+        <button class="btn btn-secondary" onclick="rerollMultiview()" style="margin-top:10px;">
+            🔄 Regenerate Views (free)
+        </button>
+
+        <button class="btn btn-secondary" onclick="showScreen('approve')" style="margin-top:10px;">
+            ← Back to Photo
+        </button>
+
+        <div class="secure-badge" style="margin-top:12px;">3D generation uses 1 of <span id="multiview-remaining">3</span> daily credits</div>
     </div>
 
     <!-- ══ SCREEN 2: Customise ══ -->

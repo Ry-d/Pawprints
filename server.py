@@ -176,27 +176,66 @@ async def process_image(data: dict, request: Request):
     }
 
 
+@app.post("/api/generate-multiview")
+async def generate_multiview(data: dict, request: Request):
+    """
+    Step 1.5: Generate front, side, and back views from the processed image using Grok.
+    User reviews these before committing to 3D generation.
+    """
+    processed_path = Path(data.get("processed_path", ""))
+    if not processed_path.exists():
+        processed_path = UPLOAD_DIR / processed_path.name
+    if not processed_path.exists():
+        raise HTTPException(400, f"Processed image not found: {processed_path}")
+
+    product_type = data.get("product_type", "statue")
+
+    try:
+        views = await generate_multiview_images(processed_path, product_type)
+    except Exception as e:
+        print(f"Multi-view generation error: {e}")
+        raise HTTPException(500, f"Multi-view generation failed: {e}")
+
+    return {
+        "views": [
+            {"label": v["label"], "url": f"/uploads/{v['path'].name}", "path": str(v["path"])}
+            for v in views
+        ],
+    }
+
+
 @app.post("/api/generate-3d")
 async def generate_3d(data: dict, request: Request):
     """
-    Step 2: User approved the processed image — now spend the Meshy credits.
-    Rate-limited: counts against daily allowance.
+    Step 2: User approved the multi-view images — now spend the Meshy credits.
+    Uses multi-image endpoint for better accuracy when views are available.
     """
-    # check = _check_rate_limit(request)
-    # if not check["allowed"]:
-        # raise HTTPException(429, check["reason"])
-
     processed_path = Path(data.get("processed_path", ""))
     if not processed_path.exists():
         processed_path = UPLOAD_DIR / processed_path.name
     if not processed_path.exists():
         raise HTTPException(400, "Processed image not found")
 
+    # Multi-view image paths (optional — uses multi-image endpoint if provided)
+    multiview_paths = data.get("multiview_paths", [])
+    resolved_views = []
+    for p in multiview_paths:
+        vp = Path(p)
+        if not vp.exists():
+            vp = UPLOAD_DIR / vp.name if isinstance(vp, Path) else UPLOAD_DIR / Path(p).name
+        if vp.exists():
+            resolved_views.append(vp)
+
     # Rate limiting paused for MVP testing
     remaining = 999
 
     try:
-        task_id = await start_3d_generation(processed_path)
+        if resolved_views:
+            print(f"Using multi-image to 3D with {len(resolved_views)} views")
+            task_id = await start_3d_generation_multiview(resolved_views)
+        else:
+            print("Using single-image to 3D (no multi-view)")
+            task_id = await start_3d_generation(processed_path)
     except Exception as e:
         print(f"3D generation error: {e}")
         task_id = None
@@ -406,6 +445,165 @@ async def remove_background_legacy(image_path: Path) -> Path:
             return image_path
 
 
+MULTIVIEW_PROMPTS = {
+    "statue": {
+        "front": (
+            "Take this image of an animal on a white background. Generate a NEW image showing "
+            "the exact same animal from the FRONT VIEW — facing directly toward the camera. "
+            "Keep the same breed, size, color, fur pattern and proportions. Pure white background. "
+            "Photorealistic, high resolution. Do NOT change the animal's appearance."
+        ),
+        "side": (
+            "Take this image of an animal on a white background. Generate a NEW image showing "
+            "the exact same animal from the LEFT SIDE VIEW — a perfect profile. "
+            "Keep the same breed, size, color, fur pattern and proportions. Pure white background. "
+            "Photorealistic, high resolution. Do NOT change the animal's appearance."
+        ),
+        "back": (
+            "Take this image of an animal on a white background. Generate a NEW image showing "
+            "the exact same animal from the BACK VIEW — facing away from the camera. "
+            "Keep the same breed, size, color, fur pattern and proportions. Pure white background. "
+            "Photorealistic, high resolution. Do NOT change the animal's appearance."
+        ),
+    },
+    "keyring": {
+        "front": (
+            "Take this image of a bronze keychain charm on a white background. Generate a NEW image "
+            "showing the exact same charm from the FRONT VIEW — facing directly toward the camera. "
+            "Keep the same design, proportions, and bronze material. Include the eyelet. Pure white background."
+        ),
+        "side": (
+            "Take this image of a bronze keychain charm on a white background. Generate a NEW image "
+            "showing the exact same charm from the LEFT SIDE VIEW — a perfect profile. "
+            "Keep the same design, proportions, and bronze material. Include the eyelet. Pure white background."
+        ),
+        "back": (
+            "Take this image of a bronze keychain charm on a white background. Generate a NEW image "
+            "showing the exact same charm from the BACK VIEW — facing away from the camera. "
+            "Keep the same design, proportions, and bronze material. Include the eyelet. Pure white background."
+        ),
+    },
+}
+
+
+async def generate_multiview_images(processed_path: Path, product_type: str) -> list[dict]:
+    """Generate front, side, and back views from processed image using Grok."""
+    if not XAI_KEY:
+        raise Exception("xAI API key not configured")
+
+    import base64
+
+    image_bytes, mime = _resize_image_for_api(processed_path)
+    image_data = base64.b64encode(image_bytes).decode()
+    data_uri = f"data:{mime};base64,{image_data}"
+
+    prompts = MULTIVIEW_PROMPTS.get(product_type, MULTIVIEW_PROMPTS["statue"])
+    views = []
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        for view_name, prompt in prompts.items():
+            print(f"  Generating {view_name} view...")
+            out_path = UPLOAD_DIR / f"{processed_path.stem}_mv_{view_name}.png"
+
+            try:
+                resp = await client.post(
+                    "https://api.x.ai/v1/images/edits",
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {XAI_KEY}",
+                    },
+                    json={
+                        "model": "grok-imagine-image",
+                        "prompt": prompt,
+                        "image": {
+                            "url": data_uri,
+                            "type": "image_url",
+                        },
+                        "response_format": "b64_json",
+                    },
+                )
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    images = data.get("data", [])
+                    if images:
+                        b64 = images[0].get("b64_json")
+                        if b64:
+                            img_bytes = base64.b64decode(b64)
+                            out_path.write_bytes(img_bytes)
+                            print(f"  ✅ {view_name} view: {out_path.name} ({len(img_bytes) / 1024:.0f}KB)")
+                            views.append({"label": view_name, "path": out_path})
+                            continue
+
+                        img_url = images[0].get("url")
+                        if img_url:
+                            img_resp = await client.get(img_url)
+                            if img_resp.status_code == 200:
+                                out_path.write_bytes(img_resp.content)
+                                print(f"  ✅ {view_name} view via URL: {out_path.name}")
+                                views.append({"label": view_name, "path": out_path})
+                                continue
+
+                    print(f"  ❌ {view_name}: no image in response")
+                else:
+                    print(f"  ❌ {view_name}: Grok error {resp.status_code} - {resp.text[:300]}")
+
+            except httpx.TimeoutException:
+                print(f"  ❌ {view_name}: timeout")
+            except Exception as e:
+                print(f"  ❌ {view_name}: {type(e).__name__}: {e}")
+
+    if not views:
+        raise Exception("Failed to generate any multi-view images")
+
+    print(f"Multi-view complete: {len(views)}/3 views generated")
+    return views
+
+
+async def start_3d_generation_multiview(image_paths: list[Path]) -> Optional[str]:
+    """Start 3D model generation via Meshy.ai Multi-Image to 3D endpoint."""
+    if not MESHY_KEY:
+        return None
+
+    import base64 as b64mod
+
+    image_urls = []
+    for img_path in image_paths:
+        image_data = b64mod.b64encode(img_path.read_bytes()).decode()
+        ext = img_path.suffix.lower()
+        mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}.get(ext, "image/jpeg")
+        image_urls.append(f"data:{mime};base64,{image_data}")
+
+    print(f"Meshy multi-image: sending {len(image_urls)} views")
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            "https://api.meshy.ai/openapi/v1/multi-image-to-3d",
+            headers={
+                "Authorization": f"Bearer {MESHY_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "image_urls": image_urls,
+                "ai_model": "meshy-6",
+                "topology": "triangle",
+                "target_polycount": 30000,
+            },
+        )
+
+        if resp.status_code in (200, 201, 202):
+            data = resp.json()
+            task_id = data.get("result") or data.get("id")
+            print(f"Meshy multi-image task started: {task_id}")
+            _multiview_tasks.add(task_id)
+            return task_id
+        else:
+            print(f"Meshy multi-image error: {resp.status_code} - {resp.text[:500]}")
+            # Fallback to single-image with first view
+            print("Falling back to single-image generation")
+            return await start_3d_generation(image_paths[0])
+
+
 async def start_3d_generation(image_path: Path) -> Optional[str]:
     """Start 3D model generation via Meshy.ai"""
     if not MESHY_KEY:
@@ -442,15 +640,27 @@ async def start_3d_generation(image_path: Path) -> Optional[str]:
             return None
 
 
+# Track which tasks used multi-image endpoint
+_multiview_tasks: set = set()
+
+
 @app.get("/api/model-status/{task_id}")
 async def model_status(task_id: str):
     """Poll Meshy.ai for model generation status"""
     if not MESHY_KEY:
         return {"status": "completed", "model_url": "/static/model.glb"}
 
+    # Determine which endpoint to poll
+    is_multiview = task_id in _multiview_tasks
+    poll_endpoint = (
+        f"https://api.meshy.ai/openapi/v1/multi-image-to-3d/{task_id}"
+        if is_multiview else
+        f"https://api.meshy.ai/openapi/v1/image-to-3d/{task_id}"
+    )
+
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.get(
-            f"https://api.meshy.ai/openapi/v1/image-to-3d/{task_id}",
+            poll_endpoint,
             headers={"Authorization": f"Bearer {MESHY_KEY}"},
         )
 
