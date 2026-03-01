@@ -281,7 +281,11 @@ async function rerollGemini() {
 
 // Step 1.5: Generate multi-view images from approved photo
 async function startMultiview() {
-    if (!APP.processedPath) return;
+    console.log('startMultiview called, processedPath:', APP.processedPath);
+    if (!APP.processedPath) {
+        alert('No processed image found — please process your photo first.');
+        return;
+    }
 
     showProcessing('Generating views...', 'Creating front, side & back angles');
 
