@@ -176,6 +176,29 @@ async def process_image(data: dict, request: Request):
     }
 
 
+@app.post("/api/generate-material-previews")
+async def generate_material_previews(data: dict, request: Request):
+    """
+    Generate bronze and resin preview images for the pet photo.
+    Uses Grok image editing to show what the pet would look like in each material.
+    """
+    image_path = Path(data.get("image_path", ""))
+    if not image_path.exists():
+        image_path = UPLOAD_DIR / image_path.name
+    if not image_path.exists():
+        raise HTTPException(400, f"Image not found: {image_path}")
+
+    product_type = data.get("product_type", "statue")
+
+    try:
+        result = await generate_material_preview_images(image_path, product_type)
+    except Exception as e:
+        print(f"Material preview generation error: {e}")
+        raise HTTPException(500, f"Material preview generation failed: {e}")
+
+    return result
+
+
 @app.post("/api/generate-multiview")
 async def generate_multiview(data: dict, request: Request):
     """
@@ -189,9 +212,10 @@ async def generate_multiview(data: dict, request: Request):
         raise HTTPException(400, f"Processed image not found: {processed_path}")
 
     product_type = data.get("product_type", "statue")
+    material = data.get("material", "bronze")  # new: which material version to generate views for
 
     try:
-        views = await generate_multiview_images(processed_path, product_type)
+        views = await generate_multiview_images(processed_path, product_type, material)
     except Exception as e:
         print(f"Multi-view generation error: {e}")
         raise HTTPException(500, f"Multi-view generation failed: {e}")
@@ -447,48 +471,191 @@ async def remove_background_legacy(image_path: Path) -> Path:
             return image_path
 
 
-MULTIVIEW_PROMPTS = {
+# ─── Material Preview Generation (Bronze + Resin) ───
+
+MATERIAL_PREVIEW_PROMPTS = {
     "statue": {
-        "front": (
-            "Take this image of an animal on a white background. Generate a NEW image showing "
-            "the exact same animal from the FRONT VIEW — facing directly toward the camera. "
-            "Keep the same breed, size, color, fur pattern and proportions. Pure white background. "
-            "Photorealistic, high resolution. Do NOT change the animal's appearance."
+        "bronze": (
+            "Take this pet photo on white background. Transform it into a highly detailed bronze statue. "
+            "Keep exact proportions and features. Metallic bronze finish, museum quality. Pure white background."
         ),
-        "side": (
-            "Take this image of an animal on a white background. Generate a NEW image showing "
-            "the exact same animal from the LEFT SIDE VIEW — a perfect profile. "
-            "Keep the same breed, size, color, fur pattern and proportions. Pure white background. "
-            "Photorealistic, high resolution. Do NOT change the animal's appearance."
-        ),
-        "back": (
-            "Take this image of an animal on a white background. Generate a NEW image showing "
-            "the exact same animal from the BACK VIEW — facing away from the camera. "
-            "Keep the same breed, size, color, fur pattern and proportions. Pure white background. "
-            "Photorealistic, high resolution. Do NOT change the animal's appearance."
+        "resin": (
+            "Take this pet photo on white background. Transform it into a full-color 3D printed resin figurine. "
+            "Keep exact colors, markings, and proportions. Vibrant, lifelike colors. Pure white background."
         ),
     },
     "keyring": {
-        "front": (
-            "Take this image of a bronze keychain charm on a white background. Generate a NEW image "
-            "showing the exact same charm from the FRONT VIEW — facing directly toward the camera. "
-            "Keep the same design, proportions, and bronze material. Include the eyelet. Pure white background."
+        "bronze": (
+            "Take this pet photo on white background. Transform it into a detailed bronze keychain charm of the pet. "
+            "Include a fixed eyelet at the top. No chain or ring. Metallic bronze finish. Pure white background."
         ),
-        "side": (
-            "Take this image of a bronze keychain charm on a white background. Generate a NEW image "
-            "showing the exact same charm from the LEFT SIDE VIEW — a perfect profile. "
-            "Keep the same design, proportions, and bronze material. Include the eyelet. Pure white background."
-        ),
-        "back": (
-            "Take this image of a bronze keychain charm on a white background. Generate a NEW image "
-            "showing the exact same charm from the BACK VIEW — facing away from the camera. "
-            "Keep the same design, proportions, and bronze material. Include the eyelet. Pure white background."
+        "resin": (
+            "Take this pet photo on white background. Transform it into a full-color resin keychain charm of the pet. "
+            "Include a fixed eyelet at the top. No chain or ring. Vibrant lifelike colors. Pure white background."
         ),
     },
 }
 
 
-async def generate_multiview_images(processed_path: Path, product_type: str) -> list[dict]:
+async def generate_material_preview_images(image_path: Path, product_type: str) -> dict:
+    """Generate bronze and resin preview images for a pet photo using Grok."""
+    if not XAI_KEY:
+        raise Exception("xAI API key not configured")
+
+    import base64
+
+    image_bytes, mime = _resize_image_for_api(image_path)
+    image_data = base64.b64encode(image_bytes).decode()
+    data_uri = f"data:{mime};base64,{image_data}"
+
+    prompts = MATERIAL_PREVIEW_PROMPTS.get(product_type, MATERIAL_PREVIEW_PROMPTS["statue"])
+    results = {
+        "original": {"url": f"/uploads/{image_path.name}"},
+    }
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        for material_name, prompt in prompts.items():
+            print(f"  Generating {material_name} preview for {product_type}...")
+            out_path = UPLOAD_DIR / f"{image_path.stem}_mat_{material_name}.png"
+
+            try:
+                resp = await client.post(
+                    "https://api.x.ai/v1/images/edits",
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {XAI_KEY}",
+                    },
+                    json={
+                        "model": "grok-imagine-image",
+                        "prompt": prompt,
+                        "image": {
+                            "url": data_uri,
+                            "type": "image_url",
+                        },
+                        "response_format": "b64_json",
+                    },
+                )
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    images = data.get("data", [])
+                    if images:
+                        b64 = images[0].get("b64_json")
+                        if b64:
+                            img_bytes = base64.b64decode(b64)
+                            out_path.write_bytes(img_bytes)
+                            print(f"  ✅ {material_name} preview: {out_path.name} ({len(img_bytes) / 1024:.0f}KB)")
+                            results[material_name] = {
+                                "url": f"/uploads/{out_path.name}",
+                                "path": str(out_path),
+                            }
+                            continue
+
+                        img_url = images[0].get("url")
+                        if img_url:
+                            img_resp = await client.get(img_url)
+                            if img_resp.status_code == 200:
+                                out_path.write_bytes(img_resp.content)
+                                print(f"  ✅ {material_name} preview via URL: {out_path.name}")
+                                results[material_name] = {
+                                    "url": f"/uploads/{out_path.name}",
+                                    "path": str(out_path),
+                                }
+                                continue
+
+                    print(f"  ❌ {material_name}: no image in response")
+                else:
+                    print(f"  ❌ {material_name}: Grok error {resp.status_code} - {resp.text[:300]}")
+
+            except httpx.TimeoutException:
+                print(f"  ❌ {material_name}: timeout")
+            except Exception as e:
+                print(f"  ❌ {material_name}: {type(e).__name__}: {e}")
+
+    if "bronze" not in results and "resin" not in results:
+        raise Exception("Failed to generate any material previews")
+
+    print(f"Material previews complete: {list(results.keys())}")
+    return results
+
+
+MULTIVIEW_PROMPTS = {
+    "statue": {
+        "bronze": {
+            "front": (
+                "Take this image of a bronze statue on a white background. Generate a NEW image showing "
+                "the exact same bronze statue from the FRONT VIEW — facing directly toward the camera. "
+                "Keep the same design, proportions, and metallic bronze finish. Pure white background."
+            ),
+            "side": (
+                "Take this image of a bronze statue on a white background. Generate a NEW image showing "
+                "the exact same bronze statue from the LEFT SIDE VIEW — a perfect profile. "
+                "Keep the same design, proportions, and metallic bronze finish. Pure white background."
+            ),
+            "back": (
+                "Take this image of a bronze statue on a white background. Generate a NEW image showing "
+                "the exact same bronze statue from the BACK VIEW — facing away from the camera. "
+                "Keep the same design, proportions, and metallic bronze finish. Pure white background."
+            ),
+        },
+        "resin": {
+            "front": (
+                "Take this image of a full-color resin figurine on a white background. Generate a NEW image showing "
+                "the exact same figurine from the FRONT VIEW — facing directly toward the camera. "
+                "Keep the same colors, markings, proportions. Vibrant lifelike colors. Pure white background."
+            ),
+            "side": (
+                "Take this image of a full-color resin figurine on a white background. Generate a NEW image showing "
+                "the exact same figurine from the LEFT SIDE VIEW — a perfect profile. "
+                "Keep the same colors, markings, proportions. Vibrant lifelike colors. Pure white background."
+            ),
+            "back": (
+                "Take this image of a full-color resin figurine on a white background. Generate a NEW image showing "
+                "the exact same figurine from the BACK VIEW — facing away from the camera. "
+                "Keep the same colors, markings, proportions. Vibrant lifelike colors. Pure white background."
+            ),
+        },
+    },
+    "keyring": {
+        "bronze": {
+            "front": (
+                "Take this image of a bronze keychain charm on a white background. Generate a NEW image "
+                "showing the exact same charm from the FRONT VIEW — facing directly toward the camera. "
+                "Keep the same design, proportions, and bronze material. Include the eyelet. Pure white background."
+            ),
+            "side": (
+                "Take this image of a bronze keychain charm on a white background. Generate a NEW image "
+                "showing the exact same charm from the LEFT SIDE VIEW — a perfect profile. "
+                "Keep the same design, proportions, and bronze material. Include the eyelet. Pure white background."
+            ),
+            "back": (
+                "Take this image of a bronze keychain charm on a white background. Generate a NEW image "
+                "showing the exact same charm from the BACK VIEW — facing away from the camera. "
+                "Keep the same design, proportions, and bronze material. Include the eyelet. Pure white background."
+            ),
+        },
+        "resin": {
+            "front": (
+                "Take this image of a full-color resin keychain charm on a white background. Generate a NEW image "
+                "showing the exact same charm from the FRONT VIEW — facing directly toward the camera. "
+                "Keep the same design, proportions, and vibrant colors. Include the eyelet. Pure white background."
+            ),
+            "side": (
+                "Take this image of a full-color resin keychain charm on a white background. Generate a NEW image "
+                "showing the exact same charm from the LEFT SIDE VIEW — a perfect profile. "
+                "Keep the same design, proportions, and vibrant colors. Include the eyelet. Pure white background."
+            ),
+            "back": (
+                "Take this image of a full-color resin keychain charm on a white background. Generate a NEW image "
+                "showing the exact same charm from the BACK VIEW — facing away from the camera. "
+                "Keep the same design, proportions, and vibrant colors. Include the eyelet. Pure white background."
+            ),
+        },
+    },
+}
+
+
+async def generate_multiview_images(processed_path: Path, product_type: str, material: str = "bronze") -> list[dict]:
     """Generate front, side, and back views from processed image using Grok."""
     if not XAI_KEY:
         raise Exception("xAI API key not configured")
@@ -499,7 +666,8 @@ async def generate_multiview_images(processed_path: Path, product_type: str) -> 
     image_data = base64.b64encode(image_bytes).decode()
     data_uri = f"data:{mime};base64,{image_data}"
 
-    prompts = MULTIVIEW_PROMPTS.get(product_type, MULTIVIEW_PROMPTS["statue"])
+    product_prompts = MULTIVIEW_PROMPTS.get(product_type, MULTIVIEW_PROMPTS["statue"])
+    prompts = product_prompts.get(material, product_prompts.get("bronze", {}))
     views = []
 
     async with httpx.AsyncClient(timeout=120) as client:

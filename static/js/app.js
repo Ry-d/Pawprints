@@ -1,41 +1,40 @@
-// PawPrints — Main App Controller
+// PawPrints — Main App Controller (Redesigned Flow)
 
 const APP = {
     currentScreen: 'upload',
-    productType: null, // 'statue' or 'keyring'
+    productType: null,          // 'statue' or 'keyring'
     uploadedFile: null,
     previewUrl: null,
     modelUrl: null,
-    selectedMaterial: 'abs',
-    selectedColor: null,
-    selectedFinish: null,
+    selectedMaterial: null,     // 'bronze' or 'resin' — chosen at material preview step
     selectedHeight: 150,
     price: null,
-    activeUploadTarget: null,
     email: null,
     remaining: 3,
-    processedImage: null,   // URL of Gemini-processed image
-    processedPath: null,    // server path for Meshy step
-    uploadPath: null,       // original upload server path
-    bankedImage: null,      // banked Gemini image URL
-    bankedPath: null,       // banked server path
-    meshyTaskId: null,      // for Shapeways quote lookup
-    shapewaysModelId: null, // Shapeways model ID
-    shapewaysQuotes: null,  // real Shapeways material quotes
-    _shapewaysBronzeCost: null, // bronze cost from Shapeways
-    multiviewImages: [],    // [{label, url, path}] from multi-view generation
+    uploadPath: null,           // original upload server path
+    processedPath: null,        // path used for 3D generation (material preview image)
+    processedImage: null,       // URL of chosen material image
+    meshyTaskId: null,
+    shapewaysModelId: null,
+    shapewaysQuotes: null,
+    _shapewaysBronzeCost: null,
+    multiviewImages: [],
+    // Material preview data
+    materialPreviews: null,     // { original: {url}, bronze: {url, path}, resin: {url, path} }
+    quoteLoaded: false,
 };
 
 // ─── Navigation ───
 function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    document.getElementById(`screen-${screenId}`).classList.add('active');
+    const el = document.getElementById(`screen-${screenId}`);
+    if (el) el.classList.add('active');
     APP.currentScreen = screenId;
 
-    const steps = ['upload', 'approve', 'multiview', 'customise', 'order'];
-    const idx = steps.indexOf(screenId);
-    // Map to 4 dots: upload=0, approve=1, multiview=1, customise=2, order=3
-    const dotMap = { upload: 0, approve: 1, multiview: 1, customise: 2, order: 3 };
+    const flow = ['upload', 'product', 'material', 'multiview', 'generating', 'customise', 'order', 'success'];
+    const idx = flow.indexOf(screenId);
+    // Map to 6 dots
+    const dotMap = { upload: 0, product: 1, material: 2, multiview: 3, generating: 4, customise: 4, order: 5, success: 5 };
     const dotIdx = dotMap[screenId] ?? idx;
     document.querySelectorAll('.step-dot').forEach((d, i) => {
         d.className = 'step-dot';
@@ -43,251 +42,218 @@ function showScreen(screenId) {
         if (i === dotIdx) d.classList.add('active');
     });
 
-    const labels = { upload: 'Step 1 of 4', approve: 'Step 2 of 4', multiview: 'Step 2 of 4', customise: 'Step 3 of 4', order: 'Step 4 of 4', success: '✓ Complete' };
+    const labels = {
+        upload: 'Step 1 of 6', product: 'Step 2 of 6', material: 'Step 3 of 6',
+        multiview: 'Step 4 of 6', generating: 'Step 5 of 6', customise: 'Step 5 of 6',
+        order: 'Step 6 of 6', success: '✓ Complete'
+    };
     document.getElementById('nav-step').textContent = labels[screenId] || '';
     document.getElementById('nav-back').style.display = idx > 0 ? '' : 'none';
     window.scrollTo(0, 0);
 }
 
 function goBack() {
-    const flow = ['upload', 'approve', 'multiview', 'customise', 'order'];
+    const flow = ['upload', 'product', 'material', 'multiview', 'customise', 'order'];
     const idx = flow.indexOf(APP.currentScreen);
     if (idx > 0) showScreen(flow[idx - 1]);
 }
 
-// ─── Product Selection (Screen 1) ───
-function selectProduct(type) {
-    APP.productType = type;
-    document.querySelectorAll('.product-card').forEach(c => c.classList.remove('selected'));
-    document.querySelectorAll('.product-upload-area').forEach(u => u.style.display = 'none');
-
-    document.getElementById(`card-${type}`).classList.add('selected');
-    document.getElementById(`upload-${type}`).style.display = 'block';
-
-    checkUploadReady();
-}
-
-function triggerCamera(type) {
-    APP.activeUploadTarget = type;
+// ─── Screen 1: Upload Photo ───
+function triggerCamera() {
     document.getElementById('camera-input').click();
 }
 
-function triggerGallery(type) {
-    APP.activeUploadTarget = type;
+function triggerGallery() {
     document.getElementById('file-input').click();
 }
 
-function handleFile(file, target) {
+function handleFile(file) {
     if (!file || !file.type.startsWith('image/')) return;
     APP.uploadedFile = file;
     APP.previewUrl = URL.createObjectURL(file);
 
-    const img = document.getElementById(`preview-img-${target}`);
-    const container = document.getElementById(`preview-${target}`);
+    const img = document.getElementById('upload-preview-img');
+    const container = document.getElementById('upload-preview');
     img.src = APP.previewUrl;
     container.style.display = 'block';
+    document.getElementById('upload-prompt-area').style.display = 'none';
+    document.querySelector('.upload-btns').style.display = 'none';
     checkUploadReady();
 }
 
-function removePhoto(type) {
+function removePhoto() {
     APP.uploadedFile = null;
     APP.previewUrl = null;
-    document.getElementById(`preview-${type}`).style.display = 'none';
+    document.getElementById('upload-preview').style.display = 'none';
+    document.getElementById('upload-prompt-area').style.display = '';
+    document.querySelector('.upload-btns').style.display = '';
     document.getElementById('file-input').value = '';
     document.getElementById('camera-input').value = '';
     checkUploadReady();
 }
 
 function checkUploadReady() {
-    document.getElementById('btn-continue-upload').disabled = !(APP.productType && APP.uploadedFile);
+    document.getElementById('btn-continue-upload').disabled = !APP.uploadedFile;
 }
 
-// ─── File Input Listeners ───
+// File input listeners
 document.getElementById('file-input').addEventListener('change', e => {
-    if (e.target.files.length && APP.activeUploadTarget) handleFile(e.target.files[0], APP.activeUploadTarget);
+    if (e.target.files.length) handleFile(e.target.files[0]);
 });
 document.getElementById('camera-input').addEventListener('change', e => {
-    if (e.target.files.length && APP.activeUploadTarget) handleFile(e.target.files[0], APP.activeUploadTarget);
+    if (e.target.files.length) handleFile(e.target.files[0]);
 });
 
-// ─── Processing ───
-function startProcessing() {
+// Move to product selection
+function goToProduct() {
     if (!APP.uploadedFile) return;
+    // Show pet photo on product screen
+    document.getElementById('product-pet-img').src = APP.previewUrl;
+    showScreen('product');
+}
 
-    // Require sign-in
-    requireAuth(() => {
+// ─── Screen 2: Product Selection ───
+function selectProduct(type) {
+    APP.productType = type;
+    document.querySelectorAll('.product-card').forEach(c => c.classList.remove('selected'));
+    document.getElementById(`card-${type}`).classList.add('selected');
+    document.getElementById('btn-continue-product').disabled = false;
+}
+
+function goToSignInThenMaterial() {
+    if (!APP.productType) return;
+
+    // Require sign-in, then upload photo and generate material previews
+    requireAuth(async () => {
         APP.email = currentUser.email;
+
         showProcessing('Uploading your photo...', 'This will take a moment');
-        registerAndProcess(currentUser.email, APP.uploadedFile);
+
+        try {
+            // Register email for rate limiting
+            const regRes = await fetch('/api/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: currentUser.email }),
+            });
+            if (regRes.ok) {
+                const regData = await regRes.json();
+                APP.remaining = regData.remaining;
+            }
+
+            // Upload the photo
+            setProgress(10);
+            const formData = new FormData();
+            formData.append('file', APP.uploadedFile);
+            const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+            if (!uploadRes.ok) throw new Error('Upload failed');
+            const uploadData = await uploadRes.json();
+            APP.uploadPath = uploadData.path;
+
+            setProgress(25);
+            document.getElementById('processing-text').textContent = 'Generating material previews...';
+            document.getElementById('processing-sub').textContent = 'Creating bronze and resin versions of your pet';
+
+            // Generate material previews
+            const matRes = await fetch('/api/generate-material-previews', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    image_path: uploadData.path,
+                    product_type: APP.productType,
+                }),
+            });
+            if (!matRes.ok) {
+                const err = await matRes.json();
+                throw new Error(err.detail || 'Material preview generation failed');
+            }
+            const matData = await matRes.json();
+            APP.materialPreviews = matData;
+
+            setProgress(100);
+            hideProcessing();
+
+            // Show material preview screen
+            initMaterialPreview();
+            showScreen('material');
+
+        } catch (err) {
+            hideProcessing();
+            console.error(err);
+            alert('Failed: ' + err.message);
+        }
     });
 }
 
-async function registerAndProcess(email, file) {
-    try {
-        const regRes = await fetch('/api/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email }),
+// ─── Screen 3: Material Preview ───
+function initMaterialPreview() {
+    const previews = APP.materialPreviews;
+    if (!previews) return;
+
+    const mainImg = document.getElementById('material-main-img');
+    const thumbsContainer = document.getElementById('material-thumbs');
+    thumbsContainer.innerHTML = '';
+
+    // Determine which images we have
+    const images = [];
+    if (previews.original) {
+        images.push({ key: 'original', label: '📸 Original', url: previews.original.url });
+    }
+    if (previews.bronze) {
+        images.push({ key: 'bronze', label: '🥉 Bronze', url: previews.bronze.url });
+    }
+    if (previews.resin) {
+        images.push({ key: 'resin', label: '🎨 Resin', url: previews.resin.url });
+    }
+
+    // Show first available preview in main window (bronze preferred)
+    const defaultImg = images.find(i => i.key === 'bronze') || images[0];
+    if (defaultImg) {
+        mainImg.src = defaultImg.url + '?t=' + Date.now();
+    }
+
+    // Create thumbnails
+    images.forEach((img, idx) => {
+        const thumb = document.createElement('div');
+        thumb.className = 'material-thumb' + (img.key === (defaultImg?.key) ? ' active' : '');
+        thumb.dataset.key = img.key;
+        thumb.innerHTML = `
+            <img src="${img.url}?t=${Date.now()}" alt="${img.label}">
+            <div class="material-thumb-label">${img.label}</div>
+        `;
+        thumb.addEventListener('click', () => {
+            mainImg.src = img.url + '?t=' + Date.now();
+            thumbsContainer.querySelectorAll('.material-thumb').forEach(t => t.classList.remove('active'));
+            thumb.classList.add('active');
         });
-        if (!regRes.ok) {
-            const err = await regRes.json();
-            throw new Error(err.detail || 'Registration failed');
-        }
-        const regData = await regRes.json();
-        APP.remaining = regData.remaining;
-        await uploadAndProcessImage(file);
-    } catch (err) {
-        hideProcessing();
-        alert(err.message);
+        thumbsContainer.appendChild(thumb);
+    });
+
+    // Show/hide choose buttons based on availability
+    document.getElementById('btn-choose-bronze').style.display = previews.bronze ? '' : 'none';
+    document.getElementById('btn-choose-resin').style.display = previews.resin ? '' : 'none';
+}
+
+function chooseMaterial(material) {
+    APP.selectedMaterial = material;
+    const preview = APP.materialPreviews[material];
+    if (preview) {
+        APP.processedImage = preview.url;
+        APP.processedPath = preview.path;
     }
+
+    // Now generate multiview for the chosen material
+    startMultiview();
 }
 
-function showProcessing(title, sub) {
-    document.getElementById('processing-text').textContent = title;
-    document.getElementById('processing-sub').textContent = sub;
-    document.getElementById('processing-overlay').classList.add('active');
-    setProgress(0);
-}
-
-function hideProcessing() {
-    document.getElementById('processing-overlay').classList.remove('active');
-}
-
-function setProgress(pct) {
-    document.getElementById('progress-fill').style.width = pct + '%';
-}
-
-// Step 1: Upload + Gemini processing (cheap — rerollable)
-async function uploadAndProcessImage(file) {
-    try {
-        setProgress(10);
-        const formData = new FormData();
-        formData.append('file', file);
-        const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
-        if (!uploadRes.ok) throw new Error('Upload failed');
-        const uploadData = await uploadRes.json();
-        APP.uploadPath = uploadData.path;
-
-        setProgress(30);
-        document.getElementById('processing-text').textContent = APP.productType === 'keyring'
-            ? 'Creating keyring charm...' : 'Processing your photo...';
-        document.getElementById('processing-sub').textContent = 'This takes a few seconds';
-
-        const procRes = await fetch('/api/process-image', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image_path: uploadData.path, product_type: APP.productType }),
-        });
-        if (!procRes.ok) {
-            const err = await procRes.json();
-            throw new Error(err.detail || 'Processing failed');
-        }
-        const procData = await procRes.json();
-        APP.processedImage = procData.processed_image;
-        APP.processedPath = procData.processed_path;
-
-        setProgress(100);
-        hideProcessing();
-
-        // Reset banked state and show approval screen
-        APP.bankedImage = null;
-        APP.bankedPath = null;
-        document.getElementById('banked-section').style.display = 'none';
-        document.getElementById('approve-img').src = APP.processedImage;
-        document.getElementById('approve-remaining').textContent = APP.remaining;
-        showScreen('approve');
-
-    } catch (err) {
-        hideProcessing();
-        console.error(err);
-        alert('Processing failed: ' + err.message);
-    }
-}
-
-// Bank current image — saves to floating hold slot
-function bankCurrent() {
-    if (!APP.processedImage) return;
-    APP.bankedImage = APP.processedImage;
-    APP.bankedPath = APP.processedPath;
-
-    document.getElementById('banked-img').src = APP.bankedImage;
-    document.getElementById('banked-section').style.display = 'block';
-}
-
-// Swap banked ↔ current (clicking the hold piece)
-function swapBanked() {
-    if (!APP.bankedImage) return;
-    const tempImg = APP.processedImage;
-    const tempPath = APP.processedPath;
-
-    APP.processedImage = APP.bankedImage;
-    APP.processedPath = APP.bankedPath;
-    APP.bankedImage = tempImg;
-    APP.bankedPath = tempPath;
-
-    document.getElementById('approve-img').src = APP.processedImage;
-    document.getElementById('banked-img').src = APP.bankedImage;
-}
-
-// Confirm modal before generating
-function showConfirmModal() {
-    const confirmPreview = document.getElementById('confirm-img');
-    // If we have multiview, show a grid preview in the confirm modal
-    if (APP.multiviewImages && APP.multiviewImages.length > 0) {
-        confirmPreview.src = APP.processedImage;
-        confirmPreview.alt = `Original + ${APP.multiviewImages.length} views will be used`;
-    } else {
-        confirmPreview.src = APP.processedImage;
-    }
-    document.getElementById('confirm-modal').classList.add('active');
-}
-
-function hideConfirmModal() {
-    document.getElementById('confirm-modal').classList.remove('active');
-}
-
-function confirmGenerate() {
-    hideConfirmModal();
-    approveAndGenerate();
-}
-
-// Reroll Gemini (free — doesn't touch Meshy)
-async function rerollGemini() {
-    showProcessing(
-        APP.productType === 'keyring' ? 'Regenerating charm...' : 'Reprocessing photo...',
-        'Free reroll'
-    );
-
-    try {
-        setProgress(30);
-        const procRes = await fetch('/api/process-image', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image_path: APP.uploadPath, product_type: APP.productType }),
-        });
-        if (!procRes.ok) throw new Error('Reroll failed');
-        const procData = await procRes.json();
-        APP.processedImage = procData.processed_image;
-        APP.processedPath = procData.processed_path;
-
-        setProgress(100);
-        hideProcessing();
-        document.getElementById('approve-img').src = APP.processedImage + '?t=' + Date.now();
-    } catch (err) {
-        hideProcessing();
-        alert('Reroll failed: ' + err.message);
-    }
-}
-
-// Step 1.5: Generate multi-view images from approved photo
+// ─── Screen 4: Multi-View Review ───
 async function startMultiview() {
-    console.log('startMultiview called, processedPath:', APP.processedPath);
     if (!APP.processedPath) {
-        alert('No processed image found — please process your photo first.');
+        alert('No processed image found — please go back and try again.');
         return;
     }
 
-    showProcessing('Generating views...', 'Creating front, side & back angles');
+    showProcessing('Generating views...', 'Creating front, side & back angles of your ' + APP.selectedMaterial + ' keepsake');
 
     try {
         setProgress(10);
@@ -297,6 +263,7 @@ async function startMultiview() {
             body: JSON.stringify({
                 processed_path: APP.processedPath,
                 product_type: APP.productType,
+                material: APP.selectedMaterial,
             }),
         });
 
@@ -313,7 +280,7 @@ async function startMultiview() {
         hideProcessing();
 
         renderMultiviewGrid();
-        document.getElementById('multiview-remaining').textContent = APP.remaining;
+        initMultiviewConfirmations();
         showScreen('multiview');
 
     } catch (err) {
@@ -327,12 +294,15 @@ function renderMultiviewGrid() {
     const grid = document.getElementById('multiview-grid');
     grid.innerHTML = '';
 
+    // Material label
+    document.getElementById('multiview-material-label').textContent = APP.selectedMaterial;
+
     // Original processed image first
     const origCard = document.createElement('div');
     origCard.className = 'multiview-card multiview-original';
     origCard.innerHTML = `
-        <img src="${APP.processedImage}?t=${Date.now()}" alt="Original">
-        <div class="multiview-label">📸 Original</div>
+        <img src="${APP.processedImage}?t=${Date.now()}" alt="Chosen material">
+        <div class="multiview-label">📸 ${APP.selectedMaterial === 'bronze' ? 'Bronze' : 'Resin'} Preview</div>
     `;
     grid.appendChild(origCard);
 
@@ -348,6 +318,36 @@ function renderMultiviewGrid() {
     });
 }
 
+function initMultiviewConfirmations() {
+    // Show/hide eyelet checkbox based on product type
+    const eyeletLabel = document.getElementById('eyelet-check-label');
+    if (APP.productType === 'keyring') {
+        eyeletLabel.style.display = '';
+    } else {
+        eyeletLabel.style.display = 'none';
+    }
+
+    // Reset checkboxes
+    document.getElementById('check-resemblance').checked = false;
+    const eyeletCheck = document.getElementById('check-eyelet');
+    if (eyeletCheck) eyeletCheck.checked = false;
+
+    checkMultiviewReady();
+}
+
+function checkMultiviewReady() {
+    const resemblance = document.getElementById('check-resemblance').checked;
+    const eyelet = document.getElementById('check-eyelet');
+    const isKeyring = APP.productType === 'keyring';
+
+    let ready = resemblance;
+    if (isKeyring && eyelet) {
+        ready = ready && eyelet.checked;
+    }
+
+    document.getElementById('btn-confirm-multiview').disabled = !ready;
+}
+
 async function rerollMultiview() {
     showProcessing('Regenerating views...', 'Creating new angles');
     try {
@@ -358,6 +358,7 @@ async function rerollMultiview() {
             body: JSON.stringify({
                 processed_path: APP.processedPath,
                 product_type: APP.productType,
+                material: APP.selectedMaterial,
             }),
         });
 
@@ -370,20 +371,38 @@ async function rerollMultiview() {
         setProgress(100);
         hideProcessing();
         renderMultiviewGrid();
+        initMultiviewConfirmations();
     } catch (err) {
         hideProcessing();
         alert('Regeneration failed: ' + err.message);
     }
 }
 
-// Step 2: User approved — now spend Meshy credits
-async function approveAndGenerate() {
-    showProcessing('Creating 3D model...', 'This usually takes 2-4 minutes');
+// ─── Confirm Modal ───
+function showConfirmModal() {
+    const confirmPreview = document.getElementById('confirm-img');
+    confirmPreview.src = APP.processedImage;
+    document.getElementById('confirm-modal').classList.add('active');
+}
+
+function hideConfirmModal() {
+    document.getElementById('confirm-modal').classList.remove('active');
+}
+
+function confirmGenerate() {
+    hideConfirmModal();
+    startGenerating();
+}
+
+// ─── Screen 5: Generating (with testimonials) ───
+async function startGenerating() {
+    // Show the generating screen with testimonials
+    showScreen('generating');
+    setGeneratingProgress(5);
+    document.getElementById('generating-status').textContent = 'Starting 3D generation...';
 
     try {
-        setProgress(10);
-
-        // Include multi-view paths if available
+        // Build generation request
         const genBody = { processed_path: APP.processedPath };
         if (APP.multiviewImages && APP.multiviewImages.length > 0) {
             genBody.multiview_paths = [
@@ -408,7 +427,7 @@ async function approveAndGenerate() {
 
         if (genData.task_id) {
             APP.meshyTaskId = genData.task_id;
-            const result = await pollModelStatus(genData.task_id);
+            const result = await pollModelStatusOnScreen(genData.task_id);
             if (result && result.shapeways_model_id) {
                 APP.shapewaysModelId = result.shapeways_model_id;
             }
@@ -416,10 +435,7 @@ async function approveAndGenerate() {
             APP.modelUrl = genData.model_url;
         }
 
-        setProgress(100);
-        hideProcessing();
-
-        // Save model to user account immediately after generation
+        // Save model to user account
         if (typeof saveModel === 'function') {
             saveModel({
                 modelUrl: APP.modelUrl,
@@ -427,16 +443,14 @@ async function approveAndGenerate() {
                 processedPath: APP.processedPath,
                 sourceImage: APP.previewUrl,
                 productType: APP.productType,
+                material: APP.selectedMaterial,
                 meshyTaskId: APP.meshyTaskId,
                 multiviewImages: APP.multiviewImages || [],
                 date: new Date().toLocaleDateString(),
             });
         }
 
-        if (APP.productType === 'keyring') {
-            APP.quoteLoaded = true; // fixed price, no need to wait
-        }
-
+        // Move to customise
         initCustomise();
         showScreen('customise');
 
@@ -444,42 +458,69 @@ async function approveAndGenerate() {
         if (APP.meshyTaskId && APP.productType !== 'keyring') {
             fetchShapewaysQuoteWithRetry(APP.meshyTaskId);
         }
+
     } catch (err) {
-        hideProcessing();
+        console.error(err);
         if (err.message.includes('limit')) {
             alert(err.message);
+            showScreen('multiview');
             return;
         }
-        console.error(err);
+        // Fallback
         APP.modelUrl = '/static/model.glb';
         initCustomise();
         showScreen('customise');
     }
 }
 
-async function pollModelStatus(taskId) {
+function setGeneratingProgress(pct) {
+    document.getElementById('generating-progress-fill').style.width = pct + '%';
+}
+
+async function pollModelStatusOnScreen(taskId) {
     for (let i = 0; i < 120; i++) {
         await new Promise(r => setTimeout(r, 3000));
-        setProgress(25 + Math.min(i * 0.6, 70));
+        const progress = 10 + Math.min(i * 0.75, 85);
+        setGeneratingProgress(progress);
         try {
             const res = await fetch(`/api/model-status/${taskId}`);
             const data = await res.json();
             if (data.status === 'completed') {
                 APP.modelUrl = data.model_url;
+                setGeneratingProgress(100);
+                document.getElementById('generating-status').textContent = 'Model complete! Loading...';
                 return data;
             }
-            if (data.status === 'failed') throw new Error('Failed');
-            document.getElementById('processing-sub').textContent = `Generating... ${data.progress || Math.round(25 + i * 0.6)}%`;
-        } catch (e) { /* continue */ }
+            if (data.status === 'failed') throw new Error('Generation failed');
+            document.getElementById('generating-status').textContent =
+                `Generating... ${data.progress || Math.round(progress)}%`;
+        } catch (e) {
+            if (e.message === 'Generation failed') throw e;
+        }
     }
     throw new Error('Timeout');
 }
 
-// ─── Customise (Screen 2) ───
+// ─── Processing Overlay (for quick operations) ───
+function showProcessing(title, sub) {
+    document.getElementById('processing-text').textContent = title;
+    document.getElementById('processing-sub').textContent = sub;
+    document.getElementById('processing-overlay').classList.add('active');
+    setProgress(0);
+}
+
+function hideProcessing() {
+    document.getElementById('processing-overlay').classList.remove('active');
+}
+
+function setProgress(pct) {
+    document.getElementById('progress-fill').style.width = pct + '%';
+}
+
+// ─── Screen 6: Customise ───
 function initCustomise() {
     const modelUrl = APP.modelUrl || '/static/model.glb';
     const container = document.getElementById('viewer-3d');
-    // Clear canvas but keep buttons
     const existingCanvas = container.querySelector('canvas');
     if (existingCanvas) existingCanvas.remove();
 
@@ -487,215 +528,40 @@ function initCustomise() {
     loadModel(modelUrl);
 
     // Set product label
-    document.getElementById('product-label').textContent = 
+    document.getElementById('product-label').textContent =
         APP.productType === 'keyring' ? '🔑 Keyring' : '🗿 Statue';
+
+    // Set material badge
+    const matLabel = APP.selectedMaterial === 'resin' ? 'Full Colour Resin' : 'Bronze';
+    document.getElementById('material-badge').textContent = `Material: ${matLabel}`;
 
     const isKeyring = APP.productType === 'keyring';
     const sizeCard = document.getElementById('size-card');
-    const materialCard = document.getElementById('material-card');
 
     if (isKeyring) {
-        // Keyring: locked to bronze, 50mm
+        // Keyring: NO size options, NO material grid, NO finish
         APP.selectedHeight = 50;
-        APP.selectedMaterial = 'bronze';
-        APP.selectedColor = MATERIALS.bronze.colors[0];
-        APP.selectedFinish = MATERIALS.bronze.finishes[0];
-
-        sizeCard.style.opacity = '0.5';
-        sizeCard.style.pointerEvents = 'none';
-        document.getElementById('size-slider').value = 50;
-        document.getElementById('size-badge').textContent = '50mm (fixed)';
-
-        if (materialCard) {
-            materialCard.style.opacity = '0.5';
-            materialCard.style.pointerEvents = 'none';
-        }
+        sizeCard.style.display = 'none';
     } else {
+        // Statue: show size slider with max = bounding box for chosen material
+        sizeCard.style.display = '';
         APP.selectedHeight = 150;
-        APP.selectedMaterial = 'abs';
-        APP.selectedColor = MATERIALS.abs.colors[0];
-        APP.selectedFinish = MATERIALS.abs.finishes[0];
 
-        sizeCard.style.opacity = '';
-        sizeCard.style.pointerEvents = '';
-        if (materialCard) {
-            materialCard.style.opacity = '';
-            materialCard.style.pointerEvents = '';
+        // Set size limits based on chosen material
+        const matKey = APP.selectedMaterial === 'resin' ? 'sla' : 'bronze';
+        const mat = MATERIALS[matKey];
+        if (mat) {
+            document.getElementById('size-slider').min = mat.minSize;
+            document.getElementById('size-slider').max = mat.maxSize;
+            document.getElementById('size-slider').value = Math.min(150, mat.maxSize);
+            APP.selectedHeight = Math.min(150, mat.maxSize);
         }
     }
 
-    renderMaterials();
-    renderOptions();
     updateSizeUI();
     updatePrice();
     updateRerollUI();
     bindCustomiseEvents();
-}
-
-// ─── Shapeways Real Quotes ───
-APP.quoteLoaded = false;
-
-async function fetchShapewaysQuoteWithRetry(taskId) {
-    APP.quoteLoaded = false;
-    updatePrice(); // show "Retrieving quote..." state
-
-    // First wait longer — Shapeways needs time to process the model
-    await new Promise(r => setTimeout(r, 10000));
-
-    // Then retry up to 10 times
-    for (let attempt = 0; attempt < 10; attempt++) {
-        await new Promise(r => setTimeout(r, 5000));
-        console.log(`Shapeways quote attempt ${attempt + 1}...`);
-
-        try {
-            const res = await fetch(`/api/shapeways-quote/${taskId}`);
-            const data = await res.json();
-
-            if (data.source === 'shapeways' && data.all_materials && Object.keys(data.all_materials).length > 0) {
-                APP.shapewaysQuotes = data.all_materials;
-                APP.shapewaysDimensions = data.dimensions;
-
-                for (const [matId, quote] of Object.entries(data.all_materials)) {
-                    const name = quote.name.toLowerCase();
-                    console.log(`  Material ${matId}: ${quote.name} = $${quote.shapeways_cost}`);
-                    if (name.includes('bronze')) {
-                        APP._shapewaysBronzeCost = quote.shapeways_cost;
-                        console.log(`  → Matched bronze: $${quote.shapeways_cost}`);
-                    }
-                }
-
-                if (data.bronze_raw) APP._shapewaysBronzeCost = data.bronze_raw.shapeways_cost;
-                if (data.bronze) APP._shapewaysBronzeCost = data.bronze.shapeways_cost;
-
-                APP.quoteLoaded = true;
-                console.log('Shapeways quotes loaded:', data.all_materials);
-                updatePrice();
-                return;
-            }
-
-            if (data.error) {
-                console.log(`Shapeways: ${data.error}, retrying...`);
-            }
-        } catch (e) {
-            console.error('Shapeways quote error:', e);
-        }
-    }
-
-    // Gave up — use estimates
-    console.log('Shapeways quote unavailable, using estimates');
-    APP.quoteLoaded = true; // stop showing "retrieving"
-    updatePrice();
-}
-
-// switchProduct removed — product type is locked from Screen 1
-
-function renderMaterials() {
-    const grid = document.getElementById('material-grid');
-    grid.innerHTML = '';
-    Object.values(MATERIALS).forEach(mat => {
-        const div = document.createElement('div');
-        div.className = `material-option ${mat.id === APP.selectedMaterial ? 'selected' : ''}`;
-        div.dataset.id = mat.id;
-        div.innerHTML = `
-            <div class="material-swatch" style="${mat.swatchStyle}"></div>
-            <div class="material-info">
-                <div class="material-name">${mat.name}</div>
-                <div class="material-desc">${mat.tagline}</div>
-            </div>
-            <div class="material-price-tag">${mat.tier}</div>
-        `;
-        div.addEventListener('click', () => selectMaterial(mat.id));
-        grid.appendChild(div);
-    });
-}
-
-function selectMaterial(matId) {
-    APP.selectedMaterial = matId;
-    const mat = MATERIALS[matId];
-    APP.selectedColor = mat.colors[0];
-    APP.selectedFinish = mat.finishes[0];
-
-    document.querySelectorAll('.material-option').forEach(el => {
-        el.classList.toggle('selected', el.dataset.id === matId);
-    });
-
-    // Clamp size for statue
-    if (APP.productType !== 'keyring') {
-        const v = validateSize(matId, APP.selectedHeight);
-        if (!v.valid && v.clamped) {
-            APP.selectedHeight = v.clamped;
-            document.getElementById('size-slider').value = APP.selectedHeight;
-        }
-        document.getElementById('size-slider').max = mat.maxSize;
-        document.getElementById('size-slider').min = mat.minSize;
-    }
-
-    renderOptions();
-    updateSizeUI();
-    updatePrice();
-}
-
-function renderOptions() {
-    const mat = MATERIALS[APP.selectedMaterial];
-
-    // Colours
-    const cc = document.getElementById('color-options');
-    cc.innerHTML = '';
-    mat.colors.forEach((color, i) => {
-        const dot = document.createElement('div');
-        dot.className = `color-dot ${i === 0 ? 'selected' : ''}`;
-        if (color.hex === 'rainbow') dot.classList.add('rainbow');
-        else dot.style.backgroundColor = color.hex;
-        dot.title = color.name;
-        dot.addEventListener('click', () => {
-            APP.selectedColor = color;
-            cc.querySelectorAll('.color-dot').forEach(d => d.classList.remove('selected'));
-            dot.classList.add('selected');
-            if (color.hex !== 'rainbow') setModelColor(color.hex); else resetModelColor();
-        });
-        cc.appendChild(dot);
-    });
-
-    // Finishes
-    const fc = document.getElementById('finish-options');
-    fc.innerHTML = '';
-
-    if (mat.finishInfo) {
-        // Rich finish cards (bronze)
-        mat.finishes.forEach((finish, i) => {
-            const info = mat.finishInfo[finish] || {};
-            const card = document.createElement('div');
-            card.className = `finish-card ${i === 0 ? 'selected' : ''}`;
-            card.innerHTML = `
-                <div class="finish-card-swatch" style="background:${info.color || '#CD7F32'}"></div>
-                <div class="finish-card-info">
-                    <div class="finish-card-name">${finish}</div>
-                    <div class="finish-card-desc">${info.desc || ''}</div>
-                </div>
-            `;
-            card.addEventListener('click', () => {
-                APP.selectedFinish = finish;
-                fc.querySelectorAll('.finish-card').forEach(c => c.classList.remove('selected'));
-                card.classList.add('selected');
-                updatePrice();
-            });
-            fc.appendChild(card);
-        });
-    } else {
-        // Simple chips (ABS, sandstone)
-        mat.finishes.forEach((finish, i) => {
-            const chip = document.createElement('div');
-            chip.className = `finish-chip ${i === 0 ? 'selected' : ''}`;
-            chip.textContent = finish;
-            chip.addEventListener('click', () => {
-                APP.selectedFinish = finish;
-                fc.querySelectorAll('.finish-chip').forEach(c => c.classList.remove('selected'));
-                chip.classList.add('selected');
-                updatePrice();
-            });
-            fc.appendChild(chip);
-        });
-    }
 }
 
 function setPreset(size) {
@@ -724,14 +590,17 @@ function bindCustomiseEvents() {
 }
 
 function updateSizeUI() {
-    const mat = MATERIALS[APP.selectedMaterial];
-    if (APP.productType !== 'keyring') {
-        document.getElementById('size-badge').textContent = APP.selectedHeight + 'mm';
-        document.getElementById('size-min-label').textContent = mat.minSize + 'mm';
-        document.getElementById('size-max-label').textContent = mat.maxSize + 'mm';
-    }
+    if (APP.productType === 'keyring') return;
 
-    const v = validateSize(APP.selectedMaterial, APP.selectedHeight);
+    const matKey = APP.selectedMaterial === 'resin' ? 'sla' : 'bronze';
+    const mat = MATERIALS[matKey];
+    if (!mat) return;
+
+    document.getElementById('size-badge').textContent = APP.selectedHeight + 'mm';
+    document.getElementById('size-min-label').textContent = mat.minSize + 'mm';
+    document.getElementById('size-max-label').textContent = mat.maxSize + 'mm';
+
+    const v = validateSize(matKey, APP.selectedHeight);
     const w = document.getElementById('size-warning');
     if (!v.valid) { w.textContent = '⚠️ ' + v.message; w.classList.add('visible'); }
     else w.classList.remove('visible');
@@ -741,34 +610,39 @@ function updatePrice() {
     let result;
 
     if (APP.productType === 'keyring') {
-        // Keyring: fixed pricing ($240 + $80)
         result = calculateKeyringPrice();
+        // For resin keyring, use different pricing
+        if (APP.selectedMaterial === 'resin') {
+            result = {
+                baseCost: 80,
+                markup: 40,
+                total: 120,
+                isKeyring: true,
+                source: 'fixed',
+            };
+        }
     } else {
-        // Statue: check for real Shapeways quote for selected material
+        // Statue: use material-aware pricing
+        const matKey = APP.selectedMaterial === 'resin' ? 'sla' : 'bronze';
+        const finish = APP.selectedMaterial === 'resin' ? 'Natural' : 'Raw';
+
+        // Check Shapeways quotes
         const swQuotes = APP.shapewaysQuotes || {};
         let realCost = null;
-
-        // Try to find matching Shapeways material
-        const matName = MATERIALS[APP.selectedMaterial]?.name?.toLowerCase() || '';
         for (const [matId, quote] of Object.entries(swQuotes)) {
             const qName = quote.name.toLowerCase();
-            if (matName.includes('bronze') && qName.includes('bronze')) {
+            if (APP.selectedMaterial === 'bronze' && qName.includes('bronze')) {
                 realCost = quote.shapeways_cost;
                 break;
             }
-            if (matName.includes('sandstone') && (qName.includes('sandstone') || qName.includes('full color'))) {
-                realCost = quote.shapeways_cost;
-                break;
-            }
-            if (matName.includes('abs') && (qName.includes('plastic') || qName.includes('nylon') || qName.includes('versatile'))) {
+            if (APP.selectedMaterial === 'resin' && (qName.includes('sandstone') || qName.includes('full color'))) {
                 realCost = quote.shapeways_cost;
                 break;
             }
         }
 
         if (realCost) {
-            // Use real Shapeways cost + our tiered margin
-            const marginPct = MARGIN_TIERS[APP.selectedMaterial] || 0.65;
+            const marginPct = MARGIN_TIERS[matKey] || 0.65;
             let markup = realCost * marginPct;
             if (markup < (MIN_PROFIT + API_COST_PER_ORDER)) {
                 markup = MIN_PROFIT + API_COST_PER_ORDER;
@@ -780,8 +654,7 @@ function updatePrice() {
                 source: 'shapeways',
             };
         } else {
-            // Fallback to local estimate
-            result = calculatePrice(APP.selectedMaterial, APP.selectedHeight, APP.selectedFinish);
+            result = calculatePrice(matKey, APP.selectedHeight, finish);
         }
     }
 
@@ -790,22 +663,60 @@ function updatePrice() {
 
     const orderBtn = document.getElementById('btn-order');
 
-    if (!APP.quoteLoaded || result.pending) {
-        orderBtn.textContent = '⏳ Retrieving quote...';
-        orderBtn.disabled = true;
-        return;
+    if (!APP.quoteLoaded && APP.productType !== 'keyring') {
+        // Still waiting for Shapeways — show estimate
     }
 
     if (result.total <= 0) {
-        orderBtn.textContent = '⏳ Retrieving quote...';
+        orderBtn.textContent = '⏳ Calculating price...';
         orderBtn.disabled = true;
         return;
     }
 
     const priceStr = '$' + result.total.toFixed(2) + ' AUD';
-    const source = result.source === 'shapeways' ? '' : ' (est.)';
+    const source = result.source === 'shapeways' ? '' : (result.source === 'fixed' ? '' : ' (est.)');
     orderBtn.textContent = `Continue · ${priceStr}${source}`;
     orderBtn.disabled = false;
+}
+
+// ─── Shapeways Real Quotes ───
+async function fetchShapewaysQuoteWithRetry(taskId) {
+    APP.quoteLoaded = false;
+    updatePrice();
+
+    await new Promise(r => setTimeout(r, 10000));
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise(r => setTimeout(r, 5000));
+        console.log(`Shapeways quote attempt ${attempt + 1}...`);
+
+        try {
+            const res = await fetch(`/api/shapeways-quote/${taskId}`);
+            const data = await res.json();
+
+            if (data.source === 'shapeways' && data.all_materials && Object.keys(data.all_materials).length > 0) {
+                APP.shapewaysQuotes = data.all_materials;
+                APP.shapewaysDimensions = data.dimensions;
+
+                for (const [matId, quote] of Object.entries(data.all_materials)) {
+                    const name = quote.name.toLowerCase();
+                    console.log(`  Material ${matId}: ${quote.name} = $${quote.shapeways_cost}`);
+                    if (name.includes('bronze')) {
+                        APP._shapewaysBronzeCost = quote.shapeways_cost;
+                    }
+                }
+
+                APP.quoteLoaded = true;
+                updatePrice();
+                return;
+            }
+        } catch (e) {
+            console.error('Shapeways quote error:', e);
+        }
+    }
+
+    APP.quoteLoaded = true;
+    updatePrice();
 }
 
 function resetView() {
@@ -815,7 +726,7 @@ function resetView() {
     }
 }
 
-// ─── Order (Screen 3) ───
+// ─── Screen 7: Order Review ───
 function goToOrder() {
     // Capture 3D viewer snapshot
     if (viewerRenderer) {
@@ -824,43 +735,32 @@ function goToOrder() {
         document.getElementById('order-preview-img').src = dataUrl;
     }
 
-    const mat = MATERIALS[APP.selectedMaterial];
+    const matLabel = APP.selectedMaterial === 'resin' ? 'Full Colour Resin' : 'Lost Wax Bronze';
     const priceStr = '$' + APP.price.total.toFixed(2) + ' AUD';
+    const leadTime = APP.selectedMaterial === 'resin' ? '1-2 weeks' : '3-4 weeks';
 
     document.getElementById('order-total-price').textContent = priceStr;
-    document.getElementById('order-product').textContent = APP.productType === 'keyring' ? 'Keyring (Bronze)' : 'Statue';
-    document.getElementById('order-material').textContent = APP.productType === 'keyring' ? 'Lost Wax Bronze' : mat.name;
-    document.getElementById('order-size').textContent = APP.selectedHeight + 'mm';
+    document.getElementById('order-product').textContent =
+        APP.productType === 'keyring' ? 'Keyring' : 'Statue';
+    document.getElementById('order-material').textContent = matLabel;
+    document.getElementById('order-lead-time').textContent = leadTime;
 
-    // Colour display (read-only)
-    const occ = document.getElementById('order-color-display');
-    occ.innerHTML = '';
-    const selDot = document.createElement('div');
-    selDot.className = 'color-dot selected';
-    if (APP.selectedColor.hex === 'rainbow') selDot.classList.add('rainbow');
-    else selDot.style.backgroundColor = APP.selectedColor.hex;
-    selDot.title = APP.selectedColor.name;
-    occ.appendChild(selDot);
-    const label = document.createElement('span');
-    label.textContent = APP.selectedColor.name;
-    label.style.cssText = 'font-size:14px; font-weight:500; margin-left:4px;';
-    occ.appendChild(label);
-
-    // Finish display (read-only)
-    const ofc = document.getElementById('order-finish-display');
-    ofc.innerHTML = '';
-    const chip = document.createElement('div');
-    chip.className = 'finish-chip selected';
-    chip.textContent = APP.selectedFinish;
-    ofc.appendChild(chip);
+    if (APP.productType === 'keyring') {
+        document.getElementById('order-size-row').style.display = 'none';
+    } else {
+        document.getElementById('order-size-row').style.display = '';
+        document.getElementById('order-size').textContent = APP.selectedHeight + 'mm';
+    }
 
     showScreen('order');
 }
 
 function placeOrder() {
     const orderId = 'PP-' + Date.now().toString(36).toUpperCase();
+    const matLabel = APP.selectedMaterial === 'resin' ? 'Full Colour Resin' : 'Lost Wax Bronze';
+    const leadTime = APP.selectedMaterial === 'resin' ? '1-2 weeks' : '3-4 weeks';
 
-    // Save model for repeat orders
+    // Save model
     if (typeof saveModel === 'function') {
         saveModel({
             modelUrl: APP.modelUrl,
@@ -878,19 +778,20 @@ function placeOrder() {
         addOrder({
             id: orderId,
             product: APP.productType === 'keyring' ? 'Keyring' : 'Statue',
-            material: MATERIALS[APP.selectedMaterial]?.name || APP.selectedMaterial,
-            size: APP.selectedHeight + 'mm',
+            material: matLabel,
+            size: APP.productType === 'keyring' ? '50mm' : APP.selectedHeight + 'mm',
             price: '$' + APP.price.total.toFixed(2) + ' AUD',
             status: 'Processing',
             date: new Date().toISOString(),
         });
     }
 
+    document.getElementById('success-delivery').textContent = leadTime;
     showScreen('success');
     document.getElementById('success-order-id').textContent = orderId;
 }
 
-// ─── Reroll 3D Model (costs Meshy credits) ───
+// ─── Reroll 3D Model ───
 async function rerollModel() {
     if (APP.remaining <= 0) {
         alert('No regenerations left today. Try again tomorrow!');
@@ -926,7 +827,20 @@ async function rerollModel() {
 
         if (genData.task_id) {
             document.getElementById('processing-text').textContent = 'Creating 3D model...';
-            await pollModelStatus(genData.task_id);
+            for (let i = 0; i < 120; i++) {
+                await new Promise(r => setTimeout(r, 3000));
+                setProgress(25 + Math.min(i * 0.6, 70));
+                try {
+                    const res = await fetch(`/api/model-status/${genData.task_id}`);
+                    const data = await res.json();
+                    if (data.status === 'completed') {
+                        APP.modelUrl = data.model_url;
+                        break;
+                    }
+                    if (data.status === 'failed') throw new Error('Failed');
+                    document.getElementById('processing-sub').textContent = `Generating... ${data.progress || Math.round(25 + i * 0.6)}%`;
+                } catch (e) { /* continue */ }
+            }
         } else if (genData.model_url) {
             APP.modelUrl = genData.model_url;
         }

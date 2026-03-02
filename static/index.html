@@ -25,7 +25,7 @@
         <a href="/" class="nav-logo">🐾 <span>Paw</span>Prints</a>
     </div>
     <div class="nav-right">
-        <div class="nav-step" id="nav-step">Step 1 of 4</div>
+        <div class="nav-step" id="nav-step">Step 1 of 6</div>
         <div id="nav-auth"><button class="btn-sign-in" onclick="showSignIn()">Sign In</button></div>
     </div>
 </nav>
@@ -102,15 +102,61 @@
     <div class="step-dot"></div>
     <div class="step-dot"></div>
     <div class="step-dot"></div>
+    <div class="step-dot"></div>
+    <div class="step-dot"></div>
 </div>
 
 <div class="container">
 
-    <!-- ══ SCREEN 1: Product Picker ══ -->
+    <!-- ══ SCREEN 1: Upload Photo ══ -->
     <div class="screen active" id="screen-upload">
         <div class="hero">
             <h1>Turn your pet into<br>a keepsake</h1>
-            <p>Choose a custom 3D-printed keepsake of your furry friend</p>
+            <p>Upload or take a photo of your furry friend to get started</p>
+        </div>
+
+        <div class="upload-card">
+            <div class="upload-inner">
+                <div class="upload-prompt" id="upload-prompt-area">
+                    <span class="upload-icon">📸</span>
+                    <span>Upload or take a photo of your pet</span>
+                </div>
+                <div class="upload-btns">
+                    <button class="btn btn-primary btn-sm" onclick="triggerCamera()">📷 Camera</button>
+                    <button class="btn btn-secondary btn-sm" onclick="triggerGallery()">🖼️ Gallery</button>
+                </div>
+                <div class="upload-preview" id="upload-preview" style="display:none;">
+                    <img id="upload-preview-img" alt="Pet photo">
+                    <button class="preview-remove" onclick="removePhoto()">✕</button>
+                </div>
+            </div>
+        </div>
+
+        <input type="file" id="file-input" accept="image/*" hidden>
+        <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
+
+        <button class="btn btn-accent btn-lg" id="btn-continue-upload" onclick="goToProduct()" disabled>
+            Continue →
+        </button>
+        <div class="secure-badge">🔒 Your photos are processed securely</div>
+
+        <a href="#" class="example-link">→ View example photos</a>
+
+        <footer class="footer">
+            🐾 PawPrints · Handcrafted in Australia
+        </footer>
+    </div>
+
+    <!-- ══ SCREEN 2: Product Selection ══ -->
+    <div class="screen" id="screen-product">
+        <div class="hero">
+            <h1>Choose your keepsake</h1>
+            <p>Select the type of keepsake you'd like</p>
+        </div>
+
+        <!-- Pet photo preview -->
+        <div class="product-pet-preview">
+            <img id="product-pet-img" alt="Your pet">
         </div>
 
         <!-- Statue Card -->
@@ -118,25 +164,9 @@
             <div class="product-card-header">
                 <div>
                     <div class="product-card-title">Statue</div>
-                    <div class="product-card-desc">Keepsake statue</div>
+                    <div class="product-card-desc">Keepsake statue for display</div>
                 </div>
                 <div class="product-card-icon">🗿</div>
-            </div>
-            <div class="product-upload-area" id="upload-statue" style="display:none;">
-                <div class="upload-inner" onclick="event.stopPropagation();">
-                    <div class="upload-prompt">
-                        <span class="upload-icon">📸</span>
-                        <span>Upload or take a photo</span>
-                    </div>
-                    <div class="upload-btns">
-                        <button class="btn btn-primary btn-sm" onclick="triggerCamera('statue')">📷 Camera</button>
-                        <button class="btn btn-secondary btn-sm" onclick="triggerGallery('statue')">🖼️ Gallery</button>
-                    </div>
-                    <div class="upload-preview" id="preview-statue" style="display:none;">
-                        <img id="preview-img-statue" alt="Pet photo">
-                        <button class="preview-remove" onclick="removePhoto('statue')">✕</button>
-                    </div>
-                </div>
             </div>
         </div>
 
@@ -149,88 +179,74 @@
                 </div>
                 <div class="product-card-icon">🔑</div>
             </div>
-            <div class="product-upload-area" id="upload-keyring" style="display:none;">
-                <div class="upload-inner" onclick="event.stopPropagation();">
-                    <div class="upload-prompt">
-                        <span class="upload-icon">📸</span>
-                        <span>Upload or take a photo</span>
-                    </div>
-                    <div class="upload-btns">
-                        <button class="btn btn-primary btn-sm" onclick="triggerCamera('keyring')">📷 Camera</button>
-                        <button class="btn btn-secondary btn-sm" onclick="triggerGallery('keyring')">🖼️ Gallery</button>
-                    </div>
-                    <div class="upload-preview" id="preview-keyring" style="display:none;">
-                        <img id="preview-img-keyring" alt="Pet photo">
-                        <button class="preview-remove" onclick="removePhoto('keyring')">✕</button>
-                    </div>
-                </div>
-            </div>
         </div>
 
-        <input type="file" id="file-input" accept="image/*" hidden>
-        <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
-
-        <button class="btn btn-accent btn-lg" id="btn-continue-upload" onclick="startProcessing()" disabled>
+        <button class="btn btn-accent btn-lg" id="btn-continue-product" onclick="goToSignInThenMaterial()" disabled>
             Continue →
-        </button>
-        <div class="secure-badge">🔒 Secure checkout</div>
-
-        <a href="#" class="example-link">→ View example photos</a>
-
-        <footer class="footer">
-            🐾 PawPrints · Handcrafted in Australia
-        </footer>
-    </div>
-
-    <!-- ══ SCREEN 1.5: Approve Processed Image ══ -->
-    <div class="screen" id="screen-approve">
-        <div class="hero">
-            <h1>Looking good?</h1>
-            <p>Reroll for free until you're happy. Bank your favourite to keep it safe while you explore.</p>
-        </div>
-
-        <!-- Current Roll -->
-        <div class="approve-section">
-            <div class="approve-label">Current Roll</div>
-            <div class="preview-container" id="approve-preview">
-                <img id="approve-img" alt="Processed pet image">
-            </div>
-            <div class="approve-actions">
-                <button class="btn btn-primary btn-sm" onclick="bankCurrent()">⭐ Bank this one</button>
-                <button class="btn btn-secondary btn-sm" onclick="rerollGemini()">🔄 Reroll (free)</button>
-            </div>
-        </div>
-
-        <!-- Banked Image (floating, Tetris hold style) -->
-        <div class="banked-float" id="banked-section" style="display:none;" onclick="swapBanked()">
-            <div class="banked-float-label">⭐ HOLD</div>
-            <img id="banked-img" alt="Banked image">
-        </div>
-
-        <!-- Approve Button -->
-        <button class="btn btn-accent btn-lg" id="btn-approve" onclick="startMultiview()" style="margin-top:16px;">
-            ✅ Generate Views →
         </button>
 
         <button class="btn btn-secondary" onclick="showScreen('upload')" style="margin-top:10px;">
             ← Change Photo
         </button>
-
-        <div class="secure-badge" style="margin-top:12px;">Rerolls are free · 3D generation uses 1 of <span id="approve-remaining">3</span> daily credits</div>
     </div>
 
-    <!-- ══ SCREEN 1.75: Multi-View Review ══ -->
+    <!-- ══ SCREEN 3: Material Preview ══ -->
+    <div class="screen" id="screen-material">
+        <div class="hero">
+            <h1>Choose your material</h1>
+            <p>See how your pet looks in bronze and full-color resin</p>
+        </div>
+
+        <!-- Large preview image -->
+        <div class="material-main-preview">
+            <img id="material-main-img" alt="Material preview">
+        </div>
+
+        <!-- Thumbnail row: original + bronze + resin -->
+        <div class="material-thumbs" id="material-thumbs">
+            <!-- Populated dynamically -->
+        </div>
+
+        <!-- Material choice buttons -->
+        <div class="material-choice-buttons">
+            <button class="btn btn-primary btn-lg material-choose-btn" id="btn-choose-bronze" onclick="chooseMaterial('bronze')">
+                🥉 Choose Bronze
+            </button>
+            <button class="btn btn-primary btn-lg material-choose-btn" id="btn-choose-resin" onclick="chooseMaterial('resin')">
+                🎨 Choose Full Colour Resin
+            </button>
+        </div>
+
+        <button class="btn btn-secondary" onclick="showScreen('product')" style="margin-top:10px;">
+            ← Back to Product
+        </button>
+    </div>
+
+    <!-- ══ SCREEN 4: Multi-View Review ══ -->
     <div class="screen" id="screen-multiview">
         <div class="hero">
             <h1>Multi-View Preview</h1>
-            <p>We generated front, side, and back views of your pet. Review them before creating the 3D model.</p>
+            <p>Review front, side, and back views of your <span id="multiview-material-label">bronze</span> keepsake</p>
         </div>
 
         <div class="multiview-grid" id="multiview-grid">
             <!-- Populated dynamically -->
         </div>
 
-        <button class="btn btn-accent btn-lg" id="btn-confirm-multiview" onclick="showConfirmModal()" style="margin-top:16px;">
+        <!-- Confirmation checkboxes -->
+        <div class="config-card multiview-confirmations" id="multiview-confirmations">
+            <h3>✅ Confirm before generating</h3>
+            <label class="checkbox-label" id="eyelet-check-label" style="display:none;">
+                <input type="checkbox" id="check-eyelet" onchange="checkMultiviewReady()">
+                Eyelet is visible and firmly anchored
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" id="check-resemblance" onchange="checkMultiviewReady()">
+                Strong resemblance to my pet
+            </label>
+        </div>
+
+        <button class="btn btn-accent btn-lg" id="btn-confirm-multiview" onclick="showConfirmModal()" disabled>
             ✅ Generate 3D Model
         </button>
 
@@ -238,18 +254,105 @@
             🔄 Regenerate Views (free)
         </button>
 
-        <button class="btn btn-secondary" onclick="showScreen('approve')" style="margin-top:10px;">
-            ← Back to Photo
+        <button class="btn btn-secondary" onclick="showScreen('material')" style="margin-top:10px;">
+            ← Back to Material
         </button>
-
-        <div class="secure-badge" style="margin-top:12px;">3D generation uses 1 of <span id="multiview-remaining">3</span> daily credits</div>
     </div>
 
-    <!-- ══ SCREEN 2: Customise ══ -->
+    <!-- ══ SCREEN 5: Generating (3D model + testimonials) ══ -->
+    <div class="screen" id="screen-generating">
+        <div class="hero">
+            <h1>Creating your 3D model</h1>
+            <p>This usually takes 2-4 minutes. Check out what others have made while you wait!</p>
+        </div>
+
+        <div class="generating-progress">
+            <div class="spinner"></div>
+            <div class="generating-status" id="generating-status">Starting generation...</div>
+            <div class="progress-bar"><div class="progress-fill" id="generating-progress-fill"></div></div>
+        </div>
+
+        <!-- Testimonials / Social Proof -->
+        <div class="testimonials-section">
+            <h3>💬 What our customers say</h3>
+
+            <div class="testimonial-card">
+                <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                <p class="testimonial-text">"The bronze statue of my golden retriever is absolutely stunning. It captures every detail — even the way he tilts his head!"</p>
+                <div class="testimonial-author">
+                    <div class="testimonial-avatar">🐕</div>
+                    <div>
+                        <div class="testimonial-name">Sarah M.</div>
+                        <div class="testimonial-product">Bronze Statue · Golden Retriever</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="testimonial-card">
+                <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                <p class="testimonial-text">"I carry my cat everywhere now! The keyring is so detailed and the bronze finish is beautiful. Perfect memorial for my Whiskers."</p>
+                <div class="testimonial-author">
+                    <div class="testimonial-avatar">🐈</div>
+                    <div>
+                        <div class="testimonial-name">James K.</div>
+                        <div class="testimonial-product">Bronze Keyring · Tabby Cat</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="testimonial-card">
+                <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                <p class="testimonial-text">"The full-color resin statue looks exactly like my Frenchie! The colors are vibrant and it's now pride of place on my desk."</p>
+                <div class="testimonial-author">
+                    <div class="testimonial-avatar">🐾</div>
+                    <div>
+                        <div class="testimonial-name">Emma L.</div>
+                        <div class="testimonial-product">Resin Statue · French Bulldog</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="testimonial-card">
+                <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
+                <p class="testimonial-text">"Ordered as a gift for my mum — she cried happy tears. The detail on the resin keyring is incredible for something so small."</p>
+                <div class="testimonial-author">
+                    <div class="testimonial-avatar">🐶</div>
+                    <div>
+                        <div class="testimonial-name">Tom R.</div>
+                        <div class="testimonial-product">Resin Keyring · Cavoodle</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gallery of example products -->
+        <div class="social-proof-gallery">
+            <h3>📸 Recent creations</h3>
+            <div class="gallery-grid">
+                <div class="gallery-item">
+                    <div class="gallery-placeholder">🐕 Bronze Statue</div>
+                </div>
+                <div class="gallery-item">
+                    <div class="gallery-placeholder">🐈 Resin Keyring</div>
+                </div>
+                <div class="gallery-item">
+                    <div class="gallery-placeholder">🐾 Bronze Keyring</div>
+                </div>
+                <div class="gallery-item">
+                    <div class="gallery-placeholder">🦮 Resin Statue</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══ SCREEN 6: Customise ══ -->
     <div class="screen" id="screen-customise">
 
         <!-- Product Label -->
         <div class="product-label" id="product-label">🗿 Statue</div>
+
+        <!-- Material badge -->
+        <div class="material-badge" id="material-badge">Material: Bronze</div>
 
         <!-- 3D Viewer -->
         <div class="viewer-container" id="viewer-3d">
@@ -258,7 +361,7 @@
             <div class="viewer-hint">Drag to rotate · Pinch to zoom</div>
         </div>
 
-        <!-- Size -->
+        <!-- Size (statue only) -->
         <div class="config-card" id="size-card">
             <h3>✦ Size <span class="size-badge" id="size-badge">150mm</span></h3>
             <div class="size-presets" id="size-presets">
@@ -276,31 +379,13 @@
             </div>
         </div>
 
-        <!-- Material -->
-        <div class="config-card" id="material-card">
-            <h3>🧱 Material</h3>
-            <div class="material-grid" id="material-grid"></div>
-        </div>
-
-        <!-- Colour -->
-        <div class="config-card">
-            <h3>🎨 Colour</h3>
-            <div class="color-row" id="color-options"></div>
-        </div>
-
-        <!-- Finish -->
-        <div class="config-card">
-            <h3>✨ Finish</h3>
-            <div class="finish-row" id="finish-options"></div>
-        </div>
-
         <button class="btn btn-accent btn-lg" id="btn-order" onclick="goToOrder()">
             Continue →
         </button>
         <div class="secure-badge">🔒 Secure checkout</div>
     </div>
 
-    <!-- ══ SCREEN 3: Order Review ══ -->
+    <!-- ══ SCREEN 7: Order Review ══ -->
     <div class="screen" id="screen-order">
         <div class="hero">
             <h1>Review Your Order</h1>
@@ -316,18 +401,6 @@
             <div class="quote-price" id="order-total-price">$124.06 AUD</div>
         </div>
 
-        <!-- Colour (display) -->
-        <div class="config-card">
-            <h3>🎨 Colour</h3>
-            <div class="color-row" id="order-color-display"></div>
-        </div>
-
-        <!-- Finish (display) -->
-        <div class="config-card">
-            <h3>✨ Finish</h3>
-            <div class="finish-row" id="order-finish-display"></div>
-        </div>
-
         <div class="success-card" id="order-summary">
             <div class="row">
                 <span class="label">Product</span>
@@ -335,12 +408,22 @@
             </div>
             <div class="row">
                 <span class="label">Material</span>
-                <span class="value" id="order-material">ABS Plastic</span>
+                <span class="value" id="order-material">Bronze</span>
             </div>
-            <div class="row">
+            <div class="row" id="order-size-row">
                 <span class="label">Size</span>
                 <span class="value" id="order-size">150mm</span>
             </div>
+            <div class="row">
+                <span class="label">Lead Time</span>
+                <span class="value" id="order-lead-time">3-4 weeks</span>
+            </div>
+        </div>
+
+        <!-- Lead time note -->
+        <div class="lead-time-note" id="lead-time-note">
+            <strong>📦 Estimated lead times:</strong><br>
+            Bronze: 3-4 weeks · Full Colour Resin: 1-2 weeks
         </div>
 
         <button class="btn btn-accent btn-lg" onclick="placeOrder()">
@@ -353,7 +436,7 @@
         </button>
     </div>
 
-    <!-- ══ SCREEN 4: Success ══ -->
+    <!-- ══ SCREEN 8: Success ══ -->
     <div class="screen" id="screen-success">
         <div class="success-icon">🎉</div>
         <div class="hero">
@@ -372,7 +455,7 @@
             </div>
             <div class="row">
                 <span class="label">Est. Delivery</span>
-                <span class="value">2-3 weeks</span>
+                <span class="value" id="success-delivery">2-3 weeks</span>
             </div>
         </div>
 
@@ -414,7 +497,7 @@
     <div class="auth-card">
         <button class="auth-close" onclick="hideConfirmModal()">✕</button>
         <h2>Generate 3D Model?</h2>
-        <p style="margin-bottom:16px;">This image will be sent to generate your 3D model. This uses 1 credit.</p>
+        <p style="margin-bottom:16px;">This will create your 3D model using 1 credit.</p>
         <div class="confirm-preview">
             <img id="confirm-img" alt="Image to generate" style="width:100%;max-height:40vh;object-fit:contain;border-radius:12px;">
         </div>
@@ -427,7 +510,7 @@
 <div class="processing-overlay" id="processing-overlay">
     <div class="spinner"></div>
     <div class="processing-text" id="processing-text">Processing your photo...</div>
-    <div class="processing-sub" id="processing-sub">This usually takes 2-4 minutes</div>
+    <div class="processing-sub" id="processing-sub">This usually takes a moment</div>
     <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
 </div>
 
