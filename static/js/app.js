@@ -207,9 +207,10 @@ function initMaterialPreview() {
     }
 
     // Show first available preview in main window (bronze preferred)
-    const defaultImg = images.find(i => i.key === 'bronze') || images[0];
+    const defaultImg = images.find(i => i.key === _activeMaterialKey) || images.find(i => i.key === 'bronze') || images[0];
     if (defaultImg) {
         mainImg.src = defaultImg.url + '?t=' + Date.now();
+        _activeMaterialKey = defaultImg.key;
     }
 
     // Create thumbnails
@@ -225,6 +226,7 @@ function initMaterialPreview() {
             mainImg.src = img.url + '?t=' + Date.now();
             thumbsContainer.querySelectorAll('.material-thumb').forEach(t => t.classList.remove('active'));
             thumb.classList.add('active');
+            _activeMaterialKey = img.key;
         });
         thumbsContainer.appendChild(thumb);
     });
@@ -232,6 +234,109 @@ function initMaterialPreview() {
     // Show/hide choose buttons based on availability
     document.getElementById('btn-choose-bronze').style.display = previews.bronze ? '' : 'none';
     document.getElementById('btn-choose-resin').style.display = previews.resin ? '' : 'none';
+}
+
+// ─── Material Preview: Reroll, Bank, Swap ───
+
+// Track which material thumbnail is currently active in the main window
+let _activeMaterialKey = 'bronze';
+
+// Track banked material state
+let _bankedMaterial = null; // { key, url, path }
+
+async function rerollMaterialPreview(material) {
+    showProcessing(`Rerolling ${material}...`, 'Generating a new version');
+
+    try {
+        setProgress(20);
+        const res = await fetch('/api/reroll-material-preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                image_path: APP.uploadPath,
+                product_type: APP.productType,
+                material: material,
+            }),
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Reroll failed');
+        }
+
+        setProgress(90);
+        const data = await res.json();
+
+        // Update the material preview data
+        APP.materialPreviews[material] = data;
+
+        setProgress(100);
+        hideProcessing();
+
+        // Rebuild the thumbnails and swap main image to the rerolled one
+        initMaterialPreview();
+
+        // Show the rerolled material in the main window
+        const mainImg = document.getElementById('material-main-img');
+        mainImg.src = data.url + '?t=' + Date.now();
+        _activeMaterialKey = material;
+        document.querySelectorAll('.material-thumb').forEach(t => {
+            t.classList.toggle('active', t.dataset.key === material);
+        });
+
+    } catch (err) {
+        hideProcessing();
+        alert('Reroll failed: ' + err.message);
+    }
+}
+
+function bankCurrentMaterial() {
+    // Bank whichever material is currently shown in the main window
+    const preview = APP.materialPreviews[_activeMaterialKey];
+    if (!preview || _activeMaterialKey === 'original') return;
+
+    _bankedMaterial = {
+        key: _activeMaterialKey,
+        url: preview.url,
+        path: preview.path,
+    };
+
+    document.getElementById('material-banked-img').src = preview.url + '?t=' + Date.now();
+    document.getElementById('material-banked-section').style.display = 'block';
+}
+
+function swapBankedMaterial() {
+    if (!_bankedMaterial) return;
+
+    // Swap banked with current active material
+    const currentPreview = APP.materialPreviews[_activeMaterialKey];
+    const bankedKey = _bankedMaterial.key;
+
+    // Put current into bank
+    const newBanked = {
+        key: _activeMaterialKey,
+        url: currentPreview.url,
+        path: currentPreview.path,
+    };
+
+    // Restore banked into the material previews
+    APP.materialPreviews[bankedKey] = {
+        url: _bankedMaterial.url,
+        path: _bankedMaterial.path,
+    };
+
+    _bankedMaterial = newBanked;
+    _activeMaterialKey = bankedKey;
+
+    // Update UI
+    document.getElementById('material-banked-img').src = _bankedMaterial.url + '?t=' + Date.now();
+    initMaterialPreview();
+
+    const mainImg = document.getElementById('material-main-img');
+    mainImg.src = APP.materialPreviews[bankedKey].url + '?t=' + Date.now();
+    document.querySelectorAll('.material-thumb').forEach(t => {
+        t.classList.toggle('active', t.dataset.key === bankedKey);
+    });
 }
 
 function chooseMaterial(material) {

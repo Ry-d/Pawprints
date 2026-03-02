@@ -194,7 +194,13 @@
     <div class="screen" id="screen-material">
         <div class="hero">
             <h1>Choose your material</h1>
-            <p>See how your pet looks in bronze and full-color resin</p>
+            <p>Reroll for free until you're happy. Bank your favourite to keep it safe.</p>
+        </div>
+
+        <!-- Banked image (Tetris hold style) -->
+        <div class="banked-float material-banked" id="material-banked-section" style="display:none;" onclick="swapBankedMaterial()">
+            <div class="banked-float-label">⭐ HOLD</div>
+            <img id="material-banked-img" alt="Banked preview">
         </div>
 
         <!-- Large preview image -->
@@ -205,6 +211,13 @@
         <!-- Thumbnail row: original + bronze + resin -->
         <div class="material-thumbs" id="material-thumbs">
             <!-- Populated dynamically -->
+        </div>
+
+        <!-- Reroll buttons -->
+        <div class="material-reroll-actions">
+            <button class="btn btn-secondary btn-sm" id="btn-reroll-bronze" onclick="rerollMaterialPreview('bronze')">🔄 Reroll Bronze</button>
+            <button class="btn btn-secondary btn-sm" id="btn-reroll-resin" onclick="rerollMaterialPreview('resin')">🔄 Reroll Resin</button>
+            <button class="btn btn-primary btn-sm" id="btn-bank-material" onclick="bankCurrentMaterial()">⭐ Bank this one</button>
         </div>
 
         <!-- Material choice buttons -->
@@ -220,6 +233,8 @@
         <button class="btn btn-secondary" onclick="showScreen('product')" style="margin-top:10px;">
             ← Back to Product
         </button>
+
+        <div class="secure-badge" style="margin-top:12px;">Rerolls are free — get it looking right</div>
     </div>
 
     <!-- ══ SCREEN 4: Multi-View Review ══ -->

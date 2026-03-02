@@ -347,6 +347,26 @@ body {
     border-radius: var(--radius);
 }
 
+/* ─── Material Preview: Reroll + Bank ─── */
+.material-reroll-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 12px 0;
+}
+
+.material-banked {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
+}
+
+#screen-material {
+    position: relative;
+}
+
 /* ─── Multi-View Grid ─── */
 .multiview-grid {
     display: grid;

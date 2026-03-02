@@ -199,6 +199,32 @@ async def generate_material_previews(data: dict, request: Request):
     return result
 
 
+@app.post("/api/reroll-material-preview")
+async def reroll_material_preview(data: dict, request: Request):
+    """
+    Reroll a single material preview (bronze or resin).
+    """
+    image_path = Path(data.get("image_path", ""))
+    if not image_path.exists():
+        image_path = UPLOAD_DIR / image_path.name
+    if not image_path.exists():
+        raise HTTPException(400, f"Image not found: {image_path}")
+
+    product_type = data.get("product_type", "statue")
+    material = data.get("material", "bronze")  # 'bronze' or 'resin'
+
+    if material not in ("bronze", "resin"):
+        raise HTTPException(400, f"Invalid material: {material}")
+
+    try:
+        result = await generate_single_material_preview(image_path, product_type, material)
+    except Exception as e:
+        print(f"Material reroll error: {e}")
+        raise HTTPException(500, f"Reroll failed: {e}")
+
+    return result
+
+
 @app.post("/api/generate-multiview")
 async def generate_multiview(data: dict, request: Request):
     """
@@ -486,12 +512,15 @@ MATERIAL_PREVIEW_PROMPTS = {
     },
     "keyring": {
         "bronze": (
-            "Take this pet photo on white background. Transform it into a detailed bronze keychain charm of the pet. "
-            "Include a fixed eyelet at the top. No chain or ring. Metallic bronze finish. Pure white background."
+            "Isolate the animal from the image and make the background white, turn it into a "
+            "detailed bronze keychain that looks identical to the pet, don't include the chain "
+            "or ring, just the fixed eyelet, the eyelet should be in full view."
         ),
         "resin": (
-            "Take this pet photo on white background. Transform it into a full-color resin keychain charm of the pet. "
-            "Include a fixed eyelet at the top. No chain or ring. Vibrant lifelike colors. Pure white background."
+            "Isolate the animal from the image and make the background white, turn it into a "
+            "detailed full color resin 3D printed keychain that looks highly similar to the pet, "
+            "A solid fixed eyelet should be in full view and firmly embedded into the pet. "
+            "do not include a ringlet for the keychain."
         ),
     },
 }
@@ -577,6 +606,75 @@ async def generate_material_preview_images(image_path: Path, product_type: str) 
 
     print(f"Material previews complete: {list(results.keys())}")
     return results
+
+
+async def generate_single_material_preview(image_path: Path, product_type: str, material: str) -> dict:
+    """Reroll a single material preview (bronze or resin) using Grok."""
+    if not XAI_KEY:
+        raise Exception("xAI API key not configured")
+
+    import base64
+
+    image_bytes, mime = _resize_image_for_api(image_path)
+    image_data = base64.b64encode(image_bytes).decode()
+    data_uri = f"data:{mime};base64,{image_data}"
+
+    prompts = MATERIAL_PREVIEW_PROMPTS.get(product_type, MATERIAL_PREVIEW_PROMPTS["statue"])
+    prompt = prompts.get(material)
+    if not prompt:
+        raise Exception(f"No prompt for {product_type}/{material}")
+
+    # Use timestamp to avoid caching
+    out_path = UPLOAD_DIR / f"{image_path.stem}_mat_{material}_{int(time.time())}.png"
+
+    print(f"  Rerolling {material} preview for {product_type}...")
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(
+            "https://api.x.ai/v1/images/edits",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {XAI_KEY}",
+            },
+            json={
+                "model": "grok-imagine-image",
+                "prompt": prompt,
+                "image": {
+                    "url": data_uri,
+                    "type": "image_url",
+                },
+                "response_format": "b64_json",
+            },
+        )
+
+        if resp.status_code == 200:
+            data = resp.json()
+            images = data.get("data", [])
+            if images:
+                b64 = images[0].get("b64_json")
+                if b64:
+                    img_bytes = base64.b64decode(b64)
+                    out_path.write_bytes(img_bytes)
+                    print(f"  ✅ {material} reroll: {out_path.name} ({len(img_bytes) / 1024:.0f}KB)")
+                    return {
+                        "url": f"/uploads/{out_path.name}",
+                        "path": str(out_path),
+                    }
+
+                img_url = images[0].get("url")
+                if img_url:
+                    img_resp = await client.get(img_url)
+                    if img_resp.status_code == 200:
+                        out_path.write_bytes(img_resp.content)
+                        print(f"  ✅ {material} reroll via URL: {out_path.name}")
+                        return {
+                            "url": f"/uploads/{out_path.name}",
+                            "path": str(out_path),
+                        }
+
+            raise Exception(f"No image in Grok response for {material}")
+        else:
+            raise Exception(f"Grok error {resp.status_code}: {resp.text[:300]}")
 
 
 MULTIVIEW_PROMPTS = {
